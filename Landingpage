@@ -1,0 +1,648 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>GrowLabs Agency — Dijitalde Güvenilir Büyüme</title>
+  <meta name="description" content="GrowLabs: 40-50 yaş arası kadın girişimciler için ölçülebilir dijital strateji, içerik ve teknoloji çözümleri. Ücretsiz ilk danışmanlık alın." />
+  <!-- Google Fonts (isteğe göre değiştir) -->
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root{
+      --bg:#f7f9fb;
+      --card:#ffffff;
+      --muted:#6b7280;
+      --accent:#3b82f6; /* CTA */
+      --accent-dark:#1e40af;
+      --radius:12px;
+      --max-width:1100px;
+      font-family:Inter,system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial;
+      color:#0f172a;
+    }
+    *{box-sizing:border-box}
+    html,body{height:100%}
+    body{
+      margin:0;
+      background:linear-gradient(180deg,var(--bg),#ffffff);
+      -webkit-font-smoothing:antialiased;
+      -moz-osx-font-smoothing:grayscale;
+      line-height:1.5;
+      padding:32px 16px;
+      display:flex;
+      justify-content:center;
+      font-size:16px;
+    }
+    .container{
+      width:100%;
+      max-width:var(--max-width);
+      margin:0 auto;
+    }
+
+    /* Header */
+    header{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:16px;
+      margin-bottom:28px;
+    }
+    .brand{
+      display:flex;
+      gap:12px;
+      align-items:center;
+    }
+    .logo{
+      width:56px;
+      height:56px;
+      border-radius:8px;
+      background:linear-gradient(135deg,var(--accent),#06b6d4);
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      color:#fff;
+      font-weight:700;
+      font-size:18px;
+      box-shadow:0 6px 18px rgba(59,130,246,0.16);
+    }
+    nav{display:flex;gap:12px;align-items:center}
+    nav a{color:var(--muted);text-decoration:none;font-weight:600}
+    .phone{background:transparent;border:1px solid rgba(15,23,42,0.06);padding:8px 12px;border-radius:10px;font-weight:600;color:var(--muted)}
+
+    /* Hero */
+    .hero{
+      background:linear-gradient(180deg, rgba(255,255,255,0.6), rgba(255,255,255,0.9));
+      border-radius:var(--radius);
+      padding:28px;
+      display:grid;
+      grid-template-columns:1fr 420px;
+      gap:24px;
+      align-items:center;
+      margin-bottom:22px;
+      box-shadow:0 8px 30px rgba(15,23,42,0.06);
+    }
+    .hero h1{
+      margin:0 0 8px 0;
+      font-size:28px;
+      line-height:1.12;
+    }
+    .hero p{margin:0 0 18px 0;color:var(--muted)}
+    .hero .ctas{display:flex;gap:12px;flex-wrap:wrap}
+    .btn{
+      display:inline-flex;
+      align-items:center;
+      gap:10px;
+      padding:12px 16px;
+      border-radius:10px;
+      cursor:pointer;
+      border:0;
+      font-weight:700;
+    }
+    .btn-primary{
+      background:var(--accent);
+      color:#fff;
+      box-shadow:0 8px 20px rgba(59,130,246,0.18);
+    }
+    .btn-secondary{
+      background:transparent;
+      color:var(--accent-dark);
+      border:1px solid rgba(30,64,175,0.08);
+    }
+    .hero-card{
+      background:var(--card);
+      border-radius:10px;
+      padding:18px;
+      box-shadow:0 6px 20px rgba(15,23,42,0.04);
+    }
+    .hero-card h4{margin:0 0 6px 0}
+    .small{font-size:14px;color:var(--muted)}
+
+    /* Sections */
+    section{margin-bottom:26px}
+    .section-head{display:flex;justify-content:space-between;align-items:flex-end;gap:12px;margin-bottom:12px}
+    .section-head h2{margin:0;font-size:20px}
+    .card-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:16px}
+
+    .service{
+      background:var(--card);
+      padding:18px;border-radius:12px;box-shadow:0 6px 18px rgba(15,23,42,0.04);
+    }
+    .service h3{margin:0 0 8px 0;font-size:16px}
+    .service p{margin:0;color:var(--muted);font-size:15px}
+
+    /* Testimonial Slider - Yeni Interaktif Demo */
+    .testimonial-slider {
+      position: relative;
+      overflow: hidden;
+      border-radius: 12px;
+      box-shadow: 0 6px 20px rgba(15,23,42,0.04);
+      background: var(--card);
+    }
+    .slider-track {
+      display: flex;
+      transition: transform 0.5s ease-in-out;
+      gap: 16px;
+    }
+    .testimonial-slide {
+      min-width: 100%;
+      padding: 16px;
+      opacity: 0.8;
+      transform: scale(0.95);
+      transition: all 0.4s ease;
+    }
+    .testimonial-slide.active {
+      opacity: 1;
+      transform: scale(1);
+    }
+    .quote{font-size:15px;color:var(--muted)}
+    .t-meta{font-weight:700;margin-top:8px}
+    .slider-nav {
+      display: flex;
+      justify-content: center;
+      gap: 8px;
+      margin-top: 12px;
+    }
+    .nav-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: var(--muted);
+      cursor: pointer;
+      transition: background 0.3s;
+    }
+    .nav-dot.active { background: var(--accent); }
+    .slider-arrows {
+      position: absolute;
+      top: 50%;
+      transform: translateY(-50%);
+      background: rgba(255,255,255,0.8);
+      border: none;
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 18px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+    }
+    .arrow-left { left: 10px; }
+    .arrow-right { right: 10px; }
+    .arrow-left:hover, .arrow-right:hover { background: var(--accent); color: white; }
+
+    /* Önce/Sonra Grid */
+    .before-after-grid { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 14px; }
+    .before-after-card {
+      background: #fff;
+      padding: 12px;
+      border-radius: 10px;
+      box-shadow: 0 10px 30px rgba(2,6,23,0.04);
+      min-width: 180px;
+      flex: 1;
+      text-align: center;
+      transition: transform 0.3s ease;
+    }
+    .before-after-card:hover { transform: translateY(-5px); }
+
+    /* Process */
+    .steps{display:flex;gap:12px;flex-wrap:wrap}
+    .step{background:linear-gradient(180deg,#fff,#f8fafc);padding:14px;border-radius:10px;flex:1;min-width:200px;box-shadow:0 6px 18px rgba(15,23,42,0.03)}
+    .step h4{margin:0 0 6px 0}
+
+    /* Team */
+    .team{display:flex;gap:12px;flex-wrap:wrap}
+    .member{background:var(--card);padding:12px;border-radius:10px;display:flex;gap:12px;align-items:center;min-width:220px}
+    .avatar{width:56px;height:56px;border-radius:10px;background:#eef2ff;display:flex;align-items:center;justify-content:center;font-weight:700;color:var(--accent-dark)}
+
+    /* CTA strip */
+    .cta-strip{background:linear-gradient(90deg,#f8fafc,#ffffff);padding:18px;border-radius:12px;display:flex;align-items:center;justify-content:space-between;gap:12px}
+    .cta-strip p{margin:0}
+    .small-muted{color:var(--muted);font-size:14px}
+
+    /* Footer */
+    footer{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding-top:18px;border-top:1px solid rgba(15,23,42,0.04);font-size:14px;color:var(--muted)}
+
+    /* Form */
+    form{display:grid;gap:10px}
+    input,textarea,select{
+      padding:10px;border-radius:10px;border:1px solid rgba(15,23,42,0.06);font-size:15px;
+    }
+    textarea{min-height:120px;resize:vertical}
+    .form-row{display:flex;gap:10px;flex-wrap:wrap}
+    .form-row .col{flex:1;min-width:160px}
+
+    /* Responsive */
+    @media (max-width:1000px){
+      .hero{grid-template-columns:1fr; padding:20px}
+      header{flex-direction:column;align-items:flex-start;gap:10px}
+      .phone{order:3}
+      .slider-arrows { display: none; } /* Mobilde oklar gizle, dots yeterli */
+    }
+    @media (max-width:560px){
+      body{padding:18px}
+      .hero h1{font-size:22px}
+      .slider-track { gap: 8px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="container" id="top">
+    <header>
+      <div class="brand">
+        <div class="logo" aria-hidden="true">GL</div>
+        <div>
+          <div style="font-weight:700">GrowLabs Agency</div>
+          <div style="font-size:13px;color:var(--muted)">Dijitalde güvenilir büyüme</div>
+        </div>
+      </div>
+      <nav aria-label="Ana menü">
+        <a href="#hizmetler">Hizmetler</a>
+        <a href="#sonuclar">Başarı Hikayeleri</a>
+        <a href="#surec">Süreç</a>
+        <a href="#iletisim" class="phone">Ücretsiz Görüşme</a>
+      </nav>
+    </header>
+
+    <!-- HERO -->
+    <main class="hero" role="main" aria-labelledby="hero-title">
+      <div>
+        <h1 id="hero-title">Markanızı dijitalde büyütmek için karmaşaya değil, güvenilir bir yol haritasına ihtiyacınız var.</h1>
+        <p>GrowLabs olarak, markanızı dijital dünyada fark edilir kılmak için strateji, içerik ve teknoloji gücünü birleştiriyoruz. Her adımda sizi anlıyor, sonuçları ölçülebilir hale getiriyoruz.</p>
+
+        <div class="ctas" role="region" aria-label="Çağrı ve eylemler">
+          <button class="btn btn-primary" id="openFormBtn">🎯 Ücretsiz İlk Görüşmeyi Planla</button>
+          <a class="btn btn-secondary" href="#sonuclar" style="text-decoration:none;">Başarı Hikâyelerini Gör</a>
+        </div>
+
+        <div style="margin-top:18px;color:var(--muted);font-size:14px">
+          <strong>İlk görüşme ücretsiz —</strong> 15 dakikalık, taahhütsüz strateji görüşmesi.
+        </div>
+      </div>
+
+      <aside class="hero-card" aria-label="Hızlı bilgiler">
+        <h4>Size özel net adımlar</h4>
+        <p class="small">Teklif, süreç ve teslimatlar tamamen şeffaf. Aşağıdakiler dahil:</p>
+        <ul style="padding-left:18px;margin:10px 0;color:var(--muted)">
+          <li>İhtiyaç analizi & hedef belirleme</li>
+          <li>Aylık içerik takvimi ve raporlama</li>
+          <li>Ölçülebilir reklam ve dönüşüm optimizasyonu</li>
+        </ul>
+
+        <div style="margin-top:12px">
+          <strong style="display:block">İletişim</strong>
+          <div class="small" style="margin-top:6px">📧 hello@growlabsagency.com<br>📍 Mecidiyeköy, İstanbul</div>
+        </div>
+      </aside>
+    </main>
+
+    <!-- Hizmetler -->
+    <section id="hizmetler" aria-labelledby="hizmetler-title">
+      <div class="section-head">
+        <h2 id="hizmetler-title">Net, Ölçülebilir ve Size Özel Çözümler</h2>
+        <div class="small-muted">Hangi aşamada olursanız olun, adım adım yanınızdayız.</div>
+      </div>
+
+      <div class="card-grid">
+        <div class="service">
+          <h3>🔹 Sosyal Medya Yönetimi</h3>
+          <p>İçerik takvimi, görsel üretimi, reklam yönetimi ve haftalık raporlama. Her gönderi hedefe yönelik.</p>
+        </div>
+        <div class="service">
+          <h3>🔹 Web & E-Ticaret</h3>
+          <p>Güven veren, mobil uyumlu ve dönüşüm odaklı web siteleri. SEO ve hız optimizasyonu dahildir.</p>
+        </div>
+        <div class="service">
+          <h3>🔹 Marka Danışmanlığı</h3>
+          <p>Marka kimliği, hedef kitle analizi ve dijital konumlandırma. İşinizi anlatan bir hikâye inşa ediyoruz.</p>
+        </div>
+        <div class="service">
+          <h3>🔹 Dijital Reklam Yönetimi</h3>
+          <p>Facebook, Instagram, Google kampanyaları; bütçe optimizasyonu ve düzenli raporlama ile yatırımınızı koruruz.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Başarı hikayesi - Interaktif Slider Demo -->
+    <section id="sonuclar" aria-labelledby="sonuclar-title">
+      <div class="section-head">
+        <h2 id="sonuclar-title">Gerçek Sonuçlar, Gerçek Hikâyeler</h2>
+        <div class="small-muted">Örnek vaka ve ölçülebilir sonuçlar – Kaydırarak keşfet!</div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 320px;gap:16px;">
+        <div>
+          <div class="testimonial-slider" role="region" aria-label="Başarı hikayesi slider'ı">
+            <div class="slider-track" id="sliderTrack">
+              <!-- Slide 1: Mevcut Ayşe T. -->
+              <div class="testimonial-slide active" role="article">
+                <div class="quote">“Butik markamın online görünürlüğü 3 ayda belirgin şekilde arttı. GrowLabs ile satışlarımızda anlamlı bir artış gördük.”</div>
+                <div class="t-meta">— Ayşe T., Moda Tasarımcısı</div>
+                <ul style="margin-top:10px;color:var(--muted)">
+                  <li>📊 Organik etkileşim: +%42 (3 ay)</li>
+                  <li>💰 Online satış: +%60 (ilk 6 hafta)</li>
+                  <li>🕓 Haftalık rapor ile tam şeffaflık</li>
+                </ul>
+                <div class="before-after-grid">
+                  <div class="before-after-card">
+                    <strong>Önce</strong>
+                    <div style="color:var(--muted);margin-top:6px">Düşük görünürlük, düzensiz içerik</div>
+                  </div>
+                  <div class="before-after-card">
+                    <strong>Sonra</strong>
+                    <div style="color:var(--muted);margin-top:6px">%60 artan e-ticaret satışları</div>
+                  </div>
+                </div>
+              </div>
+              <!-- Slide 2: Yeni Örnek - Ece H. -->
+              <div class="testimonial-slide">
+                <div class="quote">“Sosyal medya stratejileri sayesinde takipçi sayım %35 arttı, etkileşim patladı!”</div>
+                <div class="t-meta">— Ece H., Kozmetik Girişimcisi</div>
+                <ul style="margin-top:10px;color:var(--muted)">
+                  <li>📈 Takipçi artışı: +%35 (2 ay)</li>
+                  <li>❤️ Ortalama etkileşim: +%75</li>
+                  <li>📱 Hedef kitle odaklı içerik</li>
+                </ul>
+                <div class="before-after-grid">
+                  <div class="before-after-card">
+                    <strong>Önce</strong>
+                    <div style="color:var(--muted);margin-top:6px">Sıfır etkileşim, rastgele postlar</div>
+                  </div>
+                  <div class="before-after-card">
+                    <strong>Sonra</strong>
+                    <div style="color:var(--muted);margin-top:6px">%75 etkileşim artışı</div>
+                  </div>
+                </div>
+              </div>
+              <!-- Slide 3: Yeni Örnek - Deniz K. -->
+              <div class="testimonial-slide">
+                <div class="quote">“Web sitemiz yenilendi, dönüşüm oranlarımız %50'ye fırladı. Teşekkürler GrowLabs!”</div>
+                <div class="t-meta">— Deniz K., Online Butik Sahibi</div>
+                <ul style="margin-top:10px;color:var(--muted)">
+                  <li>🌐 Dönüşüm oranı: +%50</li>
+                  <li>⚡ Sayfa hızı: %40 iyileşme</li>
+                  <li>🔍 SEO sıralaması: Top 3</li>
+                </ul>
+                <div class="before-after-grid">
+                  <div class="before-after-card">
+                    <strong>Önce</strong>
+                    <div style="color:var(--muted);margin-top:6px">Yavaş site, düşük dönüşüm</div>
+                  </div>
+                  <div class="before-after-card">
+                    <strong>Sonra</strong>
+                    <div style="color:var(--muted);margin-top:6px">%50 dönüşüm artışı</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <button class="slider-arrows arrow-left" id="prevSlide">‹</button>
+            <button class="slider-arrows arrow-right" id="nextSlide">›</button>
+            <div class="slider-nav" id="sliderNav"></div>
+          </div>
+        </div>
+
+        <aside style="display:flex;flex-direction:column;gap:12px;">
+          <div style="background:linear-gradient(135deg,#fff,#f8fafc);padding:12px;border-radius:12px;">
+            <strong>Hızlı sonuç arayanlara</strong>
+            <div class="small" style="margin-top:6px;color:var(--muted)">Hedef: 3 aylık hızlı büyüme planı ve reklam optimizasyonu.</div>
+          </div>
+          <div class="hero-card" style="padding:12px;">
+            <strong>Benim Hikâyem de Olsun</strong>
+            <p class="small" style="margin-top:6px">Sizin markanız için yapılmış bir örnek vaka çalışması ister misiniz? Ücretsiz inceleme talep edin.</p>
+            <div style="margin-top:10px">
+              <button class="btn btn-primary" id="caseRequestBtn">Vaka İncelemesi İste</button>
+            </div>
+          </div>
+        </aside>
+      </div>
+    </section>
+
+    <!-- Süreç -->
+    <section id="surec" aria-labelledby="surec-title">
+      <div class="section-head">
+        <h2 id="surec-title">Nasıl Çalışıyoruz?</h2>
+        <div class="small-muted">Basit ve şeffaf 3 adım</div>
+      </div>
+
+      <div class="steps">
+        <div class="step">
+          <h4>1. Tanışma & Analiz</h4>
+          <div class="small">İlk 15 dakikalık ücretsiz görüşmede hedeflerinizi ve önceliklerinizi öğreniyoruz.</div>
+        </div>
+        <div class="step">
+          <h4>2. Strateji & Teklif</h4>
+          <div class="small">Size özel yol haritası, tahmini bütçe ve zaman çizelgesi sunuyoruz.</div>
+        </div>
+        <div class="step">
+          <h4>3. Uygulama & Raporlama</h4>
+          <div class="small">Haftalık/aylık raporlar, düzenli iletişim ve şeffaf teslimatlar.</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Ekip -->
+    <section aria-labelledby="ekip-title">
+      <div class="section-head">
+        <h2 id="ekip-title">Biz Kimiz?</h2>
+        <div class="small-muted">İnsan odaklı, sonuç odaklı bir ekip</div>
+      </div>
+
+      <div class="team">
+        <div class="member" role="group" aria-label="Sertan Kırço">
+          <div class="avatar">SK</div>
+          <div>
+            <div style="font-weight:700">Sertan Kırço</div>
+            <div class="small" style="margin-top:6px">Dijital Strateji & Marka Danışmanı</div>
+          </div>
+        </div>
+
+        <div class="member" role="group" aria-label="İçerik & Tasarım">
+          <div class="avatar">GT</div>
+          <div>
+            <div style="font-weight:700">Görsel & İçerik Ekibi</div>
+            <div class="small" style="margin-top:6px">Görsel üretim ve hikâye anlatımı</div>
+          </div>
+        </div>
+
+        <div class="member" role="group" aria-label="Analitik">
+          <div class="avatar">AA</div>
+          <div>
+            <div style="font-weight:700">Analitik & Reklam</div>
+            <div class="small" style="margin-top:6px">Veri temelli reklam optimizasyonu</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- CTA strip -->
+    <section>
+      <div class="cta-strip">
+        <div>
+          <h3 style="margin:0">İlk Adımı Atmak İçin Hazır mısınız?</h3>
+          <div class="small-muted" style="margin-top:6px">15 dakikalık ücretsiz danışma ile markanızın ihtiyaçlarını birlikte belirleyelim.</div>
+        </div>
+        <div style="display:flex;gap:10px;align-items:center">
+          <button class="btn btn-primary" id="openFormBtn2">Ücretsiz Görüşme Planla</button>
+          <a class="btn btn-secondary" href="#iletisim" style="text-decoration:none">Teklif İste</a>
+        </div>
+      </div>
+    </section>
+
+    <!-- Form / İletişim -->
+    <section id="iletisim" aria-labelledby="iletisim-title">
+      <div class="section-head">
+        <h2 id="iletisim-title">İletişim & Ücretsiz Görüşme Talebi</h2>
+        <div class="small-muted">Formu doldurun, 24 saat içinde size dönüş yapalım.</div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 360px;gap:16px;">
+        <form id="leadForm" aria-label="Ücretsiz görüşme formu" onsubmit="return handleForm(event)">
+          <div class="form-row">
+            <div class="col"><label for="name">İsim *</label><input id="name" name="name" required placeholder="Adınız ve soyadınız"></div>
+            <div class="col"><label for="phone">Telefon</label><input id="phone" name="phone" placeholder="+90 ..."></div>
+          </div>
+          <div>
+            <label for="email">E-posta *</label>
+            <input id="email" type="email" name="email" required placeholder="eposta@ornek.com">
+          </div>
+          <div>
+            <label for="company">Marka / İşletme (opsiyonel)</label>
+            <input id="company" name="company" placeholder="Marka adı">
+          </div>
+          <div>
+            <label for="message">Kısa not: Hedefleriniz veya öncelikleriniz</label>
+            <textarea id="message" name="message" placeholder="Kısaca hedeflerinizi yazın..."></textarea>
+          </div>
+          <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+            <button type="submit" class="btn btn-primary">📩 Görüşme Talep Et</button>
+            <div class="small-muted" style="font-size:13px">İlk görüşme ücretsiz, taahhüt yok. Bilgileriniz gizli tutulur.</div>
+          </div>
+        </form>
+
+        <aside style="background:var(--card);padding:16px;border-radius:12px;box-shadow:0 6px 20px rgba(15,23,42,0.04)">
+          <h4>İletişim Bilgileri</h4>
+          <div class="small" style="margin-top:8px">📧 hello@growlabsagency.com<br>📞 +90 (___) ___ __ __<br>📍 Mecidiyeköy, İstanbul</div>
+          <div style="margin-top:12px">
+            <strong>Hızlı not:</strong>
+            <div class="small" style="margin-top:6px;color:var(--muted)">Formu doldurduktan sonra 24 saat içinde size uygun bir zaman aralığı göndeririz.</div>
+          </div>
+        </aside>
+      </div>
+    </section>
+
+    <footer role="contentinfo" style="margin-top:28px">
+      <div>
+        <div style="font-weight:700">GrowLabs Agency</div>
+        <div class="small" style="margin-top:6px">Gizlilik politikamız ve KVKK uyumuna önem veriyoruz.</div>
+      </div>
+      <div style="text-align:right">
+        <div style="font-weight:700">Sosyal</div>
+        <div class="small" style="margin-top:6px">Instagram · LinkedIn · Facebook</div>
+        <div class="small" style="margin-top:10px;color:var(--muted)">© <span id="year"></span> GrowLabs Agency</div>
+      </div>
+    </footer>
+  </div>
+
+  <!-- Minimal JS: form handling, modal mimic + Yeni Slider JS -->
+  <script>
+    document.getElementById('year').textContent = new Date().getFullYear();
+
+    // Smooth scroll for anchor buttons
+    document.querySelectorAll('a[href^="#"]').forEach(a=>{
+      a.addEventListener('click', e=>{
+        e.preventDefault();
+        const id = a.getAttribute('href').slice(1);
+        const el = document.getElementById(id);
+        if(el) el.scrollIntoView({behavior:'smooth',block:'start'});
+      });
+    });
+
+    // open form buttons
+    document.getElementById('openFormBtn').addEventListener('click', ()=>document.getElementById('iletisim').scrollIntoView({behavior:'smooth'}));
+    document.getElementById('openFormBtn2').addEventListener('click', ()=>document.getElementById('iletisim').scrollIntoView({behavior:'smooth'}));
+    document.getElementById('caseRequestBtn').addEventListener('click', ()=>alert('Vaka incelemesi talebiniz alındı. En kısa sürede iletişime geçeceğiz.'));
+
+    function handleForm(e){
+      e.preventDefault();
+      const form = e.target;
+      const name = form.name.value.trim();
+      const email = form.email.value.trim();
+      // Basit doğrulama
+      if(!name || !email){ alert('Lütfen isim ve e-posta alanlarını doldurun.'); return false; }
+
+      // Burada: gerçek projede form verisini sunucuya POST et veya 3rd party form action ile bağla.
+      // Şimdilik kullanıcıya bilgilendirme gösterelim.
+      alert('Teşekkürler ' + (name.split(' ')[0] || '') + '! Talebiniz alındı. 24 saat içinde size ulaşacağız.');
+
+      // Opsiyonel: formu sıfırla
+      form.reset();
+      return false;
+    }
+
+    // Yeni: Interaktif Slider Demo JS
+    const sliderTrack = document.getElementById('sliderTrack');
+    const slides = document.querySelectorAll('.testimonial-slide');
+    const prevBtn = document.getElementById('prevSlide');
+    const nextBtn = document.getElementById('nextSlide');
+    const sliderNav = document.getElementById('sliderNav');
+    let currentSlide = 0;
+    let autoSlideInterval;
+
+    // Dots oluştur
+    slides.forEach((_, index) => {
+      const dot = document.createElement('div');
+      dot.classList.add('nav-dot');
+      if (index === 0) dot.classList.add('active');
+      dot.addEventListener('click', () => goToSlide(index));
+      sliderNav.appendChild(dot);
+    });
+    const dots = document.querySelectorAll('.nav-dot');
+
+    function updateSlider() {
+      sliderTrack.style.transform = `translateX(-${currentSlide * 100}%)`;
+      slides.forEach((slide, i) => slide.classList.toggle('active', i === currentSlide));
+      dots.forEach((dot, i) => dot.classList.toggle('active', i === currentSlide));
+    }
+
+    function goToSlide(n) {
+      currentSlide = n;
+      updateSlider();
+    }
+
+    function nextSlide() {
+      currentSlide = (currentSlide + 1) % slides.length;
+      updateSlider();
+    }
+
+    function prevSlide() {
+      currentSlide = (currentSlide - 1 + slides.length) % slides.length;
+      updateSlider();
+    }
+
+    // Otomatik play (3 sn'de bir)
+    function startAutoSlide() {
+      autoSlideInterval = setInterval(nextSlide, 3000);
+    }
+
+    function stopAutoSlide() {
+      clearInterval(autoSlideInterval);
+    }
+
+    // Event listeners
+    nextBtn.addEventListener('click', nextSlide);
+    prevBtn.addEventListener('click', prevSlide);
+    sliderTrack.addEventListener('mouseenter', stopAutoSlide);
+    sliderTrack.addEventListener('mouseleave', startAutoSlide);
+
+    // Klavye desteği (sola/sağa ok)
+    document.addEventListener('keydown', (e) => {
+      if (document.activeElement.closest('.testimonial-slider')) {
+        if (e.key === 'ArrowLeft') prevSlide();
+        if (e.key === 'ArrowRight') nextSlide();
+      }
+    });
+
+    // Başlat
+    startAutoSlide();
+  </script>
+</body>
+</html>
