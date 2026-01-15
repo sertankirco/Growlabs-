@@ -1,0 +1,274 @@
+{
+  "scenarios": [
+    {
+      "name": "Senaryo A: WhatsApp → Trello (Giriş)",
+      "description": "WhatsApp'tan gelen mesajları Trello kartlarına yönlendirir ve editörleri bilgilendirir",
+      "modules": [
+        {
+          "id": 1,
+          "module": "whatsapp:watchMessages",
+          "name": "WhatsApp: Watch New Messages",
+          "config": {
+            "connection": "twilio-whatsapp",
+            "webhook": true,
+            "filter": {
+              "type": "incoming"
+            }
+          },
+          "output": {
+            "from": "{{phone_number}}",
+            "body": "{{message_body}}",
+            "timestamp": "{{timestamp}}"
+          }
+        },
+        {
+          "id": 2,
+          "module": "trello:searchCards",
+          "name": "Trello: Müşteri Telefonu ile Kart Ara",
+          "config": {
+            "connection": "trello-main",
+            "board": "{{board_id}}",
+            "customFieldFilter": {
+              "fieldName": "Müşteri Telefon",
+              "value": "{{1.from}}"
+            }
+          },
+          "output": {
+            "card_id": "{{card_id}}",
+            "card_name": "{{card_name}}",
+            "current_list": "{{list_id}}",
+            "custom_fields": "{{custom_fields}}"
+          }
+        },
+        {
+          "id": 3,
+          "module": "filter",
+          "name": "Filter: Kart Bulundu mu?",
+          "config": {
+            "condition": {
+              "operator": "isNotEmpty",
+              "value": "{{2.card_id}}"
+            }
+          }
+        },
+        {
+          "id": 4,
+          "module": "trello:moveCard",
+          "name": "Trello: Kartı 'Revize Bekliyor' Listesine Taşı",
+          "config": {
+            "connection": "trello-main",
+            "cardId": "{{2.card_id}}",
+            "listId": "{{revize_bekliyor_list_id}}",
+            "position": "top"
+          }
+        },
+        {
+          "id": 5,
+          "module": "trello:addComment",
+          "name": "Trello: WhatsApp Mesajını Yorum Olarak Ekle",
+          "config": {
+            "connection": "trello-main",
+            "cardId": "{{2.card_id}}",
+            "comment": "📱 **WhatsApp Müşteri Notu** ({{formatDate(1.timestamp; 'DD/MM/YYYY HH:mm')}})\n\n{{1.body}}"
+          }
+        },
+        {
+          "id": 6,
+          "module": "trello:getCustomField",
+          "name": "Trello: Editör Mail Adresini Al",
+          "config": {
+            "connection": "trello-main",
+            "cardId": "{{2.card_id}}",
+            "fieldName": "Editör Mail"
+          },
+          "output": {
+            "editor_email": "{{value}}"
+          }
+        },
+        {
+          "id": 7,
+          "module": "gmail:sendEmail",
+          "name": "Gmail: Editöre Bildirim Gönder",
+          "config": {
+            "connection": "gmail-main",
+            "to": "{{6.editor_email}}",
+            "subject": "🎬 Yeni Revize Talebi: {{2.card_name}}",
+            "content": "Sayın Editör,\n\n{{2.card_name}} projesi için yeni bir revize talebi geldi.\n\n📝 Müşteri Notu:\n{{1.body}}\n\n🔗 Trello Kartı: https://trello.com/c/{{2.card_id}}\n\nLütfen kartı kontrol edin ve revizeleri en kısa sürede tamamlayın.\n\nİyi çalışmalar,\nGrowLabs Otomasyon Sistemi",
+            "contentType": "text/plain"
+          }
+        }
+      ],
+      "connections": [
+        {"from": 1, "to": 2},
+        {"from": 2, "to": 3},
+        {"from": 3, "to": 4},
+        {"from": 4, "to": 5},
+        {"from": 5, "to": 6},
+        {"from": 6, "to": 7}
+      ],
+      "errorHandling": {
+        "cardNotFound": {
+          "action": "log",
+          "module": "googleSheets:addRow",
+          "config": {
+            "spreadsheetId": "{{error_log_sheet_id}}",
+            "values": [
+              "{{1.timestamp}}",
+              "{{1.from}}",
+              "Kart bulunamadı",
+              "{{1.body}}"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "Senaryo B: Trello → Mail (Çıkış)",
+      "description": "Revize Bekliyor listesine taşınan kartlar için editöre otomatik mail gönderir",
+      "modules": [
+        {
+          "id": 1,
+          "module": "trello:watchCardMoved",
+          "name": "Trello: Kart Taşınmasını İzle",
+          "config": {
+            "connection": "trello-main",
+            "board": "{{board_id}}",
+            "webhook": true
+          },
+          "output": {
+            "card_id": "{{card_id}}",
+            "card_name": "{{card_name}}",
+            "old_list_id": "{{old_list_id}}",
+            "new_list_id": "{{new_list_id}}",
+            "new_list_name": "{{new_list_name}}"
+          }
+        },
+        {
+          "id": 2,
+          "module": "filter",
+          "name": "Filter: Hedef Liste 'Revize Bekliyor' mi?",
+          "config": {
+            "condition": {
+              "operator": "equal",
+              "value1": "{{1.new_list_name}}",
+              "value2": "Revize Bekliyor"
+            }
+          }
+        },
+        {
+          "id": 3,
+          "module": "trello:getCard",
+          "name": "Trello: Kart Detaylarını Al",
+          "config": {
+            "connection": "trello-main",
+            "cardId": "{{1.card_id}}"
+          },
+          "output": {
+            "card_url": "{{url}}",
+            "description": "{{desc}}",
+            "custom_fields": "{{customFieldItems}}"
+          }
+        },
+        {
+          "id": 4,
+          "module": "trello:getCustomFields",
+          "name": "Trello: Custom Field'ları Parse Et",
+          "config": {
+            "connection": "trello-main",
+            "cardId": "{{1.card_id}}",
+            "fields": ["Editör Mail", "Video Linki", "Müşteri Telefon"]
+          },
+          "output": {
+            "editor_email": "{{Editör Mail}}",
+            "video_link": "{{Video Linki}}",
+            "customer_phone": "{{Müşteri Telefon}}"
+          }
+        },
+        {
+          "id": 5,
+          "module": "trello:getComments",
+          "name": "Trello: Son Yorumu Al (WhatsApp Mesajı)",
+          "config": {
+            "connection": "trello-main",
+            "cardId": "{{1.card_id}}",
+            "limit": 1,
+            "filter": "commentCard"
+          },
+          "output": {
+            "latest_comment": "{{data[0].text}}"
+          }
+        },
+        {
+          "id": 6,
+          "module": "filter",
+          "name": "Filter: Editör Mail Adresi Var mı?",
+          "config": {
+            "condition": {
+              "operator": "isNotEmpty",
+              "value": "{{4.editor_email}}"
+            }
+          }
+        },
+        {
+          "id": 7,
+          "module": "gmail:sendEmail",
+          "name": "Gmail: Editöre Revize Bildirimi Gönder",
+          "config": {
+            "connection": "gmail-main",
+            "to": "{{4.editor_email}}",
+            "subject": "🎬 Yeni Revize Talebi: {{1.card_name}}",
+            "content": "<html><body><h2>Yeni Revize Talebi</h2><p><strong>Proje:</strong> {{1.card_name}}</p><h3>📝 Müşteri Notu:</h3><blockquote style='background:#f5f5f5;padding:15px;border-left:4px solid #3b82f6;'>{{5.latest_comment}}</blockquote><h3>🔗 Proje Detayları:</h3><ul><li><strong>Video Linki:</strong> <a href='{{4.video_link}}'>{{if(4.video_link; 'Görüntüle'; 'Henüz eklenmedi')}}</a></li><li><strong>Trello Kartı:</strong> <a href='{{3.card_url}}'>Kartı Aç</a></li></ul><p>Lütfen Trello kartını kontrol edin ve revizeleri en kısa sürede tamamlayın.</p><p style='color:#666;'>İyi çalışmalar,<br>GrowLabs Otomasyon Sistemi</p></body></html>",
+            "contentType": "text/html"
+          }
+        },
+        {
+          "id": 8,
+          "module": "trello:addComment",
+          "name": "Trello: Bildirim Gönderildi Notu Ekle",
+          "config": {
+            "connection": "trello-main",
+            "cardId": "{{1.card_id}}",
+            "comment": "✅ Revize bildirimi editöre gönderildi ({{formatDate(now; 'DD/MM/YYYY HH:mm')}})"
+          }
+        }
+      ],
+      "connections": [
+        {"from": 1, "to": 2},
+        {"from": 2, "to": 3},
+        {"from": 3, "to": 4},
+        {"from": 4, "to": 5},
+        {"from": 5, "to": 6},
+        {"from": 6, "to": 7},
+        {"from": 7, "to": 8}
+      ],
+      "errorHandling": {
+        "emailFailed": {
+          "action": "notify",
+          "fallback": {
+            "module": "trello:addComment",
+            "config": {
+              "cardId": "{{1.card_id}}",
+              "comment": "⚠️ UYARI: Editöre mail gönderilemedi. Lütfen manuel olarak bilgilendirin."
+            }
+          }
+        }
+      }
+    }
+  ],
+  "globalVariables": {
+    "board_id": "TRELLO_BOARD_ID_BURAYA",
+    "revize_bekliyor_list_id": "LIST_ID_BURAYA",
+    "musteri_onayinda_list_id": "LIST_ID_BURAYA",
+    "error_log_sheet_id": "GOOGLE_SHEETS_ID_BURAYA"
+  },
+  "scheduling": {
+    "scenario_a": {
+      "type": "webhook",
+      "description": "WhatsApp mesajı geldiğinde anında tetiklenir"
+    },
+    "scenario_b": {
+      "type": "webhook",
+      "description": "Trello'da kart taşındığında anında tetiklenir"
+    }
+  }
+}

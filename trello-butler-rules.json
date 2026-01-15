@@ -1,0 +1,321 @@
+{
+  "butler_rules": {
+    "card_moved_rules": [
+      {
+        "name": "Editör Bildirimi - Revize Bekliyor",
+        "trigger": {
+          "type": "card_moved_to_list",
+          "list_name": "Revize Bekliyor"
+        },
+        "actions": [
+          {
+            "type": "send_email",
+            "to": "{customfield:Editör Mail}",
+            "subject": "🎬 Yeni Revize: {cardname}",
+            "body": "Sayın Editör,\n\n{cardname} projesi için yeni bir revize talebi geldi.\n\nTrello Kartı: {cardlink}\n\nLütfen kartı kontrol edin.\n\nİyi çalışmalar!"
+          },
+          {
+            "type": "add_yellow_label",
+            "label_name": "⏳ Revize Bekliyor"
+          },
+          {
+            "type": "add_comment",
+            "text": "📧 Editöre bildirim gönderildi - {date} {time}"
+          }
+        ],
+        "butler_command": "when a card is moved to list \"Revize Bekliyor\", send an email to {customfield:editörmail} with subject \"Yeni Revize: {cardname}\" and message \"Lütfen kartı kontrol edin: {cardlink}\", and add the yellow label to the card, and add a comment \"📧 Editöre bildirim gönderildi\""
+      },
+      {
+        "name": "Onay Etiketi - Müşteri Onayında",
+        "trigger": {
+          "type": "card_moved_to_list",
+          "list_name": "Müşteri Onayında"
+        },
+        "actions": [
+          {
+            "type": "add_blue_label",
+            "label_name": "👀 Müşteri İncelemesinde"
+          },
+          {
+            "type": "add_comment",
+            "text": "📤 Video müşteriye gönderildi. Onay bekleniyor..."
+          }
+        ],
+        "butler_command": "when a card is moved to list \"Müşteri Onayında\", add the blue label to the card, and add a comment \"📤 Video müşteriye gönderildi. Onay bekleniyor...\""
+      },
+      {
+        "name": "Tamamlanma Bildirimi",
+        "trigger": {
+          "type": "card_moved_to_list",
+          "list_name": "Tamamlandı"
+        },
+        "actions": [
+          {
+            "type": "add_green_label",
+            "label_name": "✅ Tamamlandı"
+          },
+          {
+            "type": "add_comment",
+            "text": "@board Proje tamamlandı! ✅ Müşteri: {customfield:Müşteri Telefon}"
+          },
+          {
+            "type": "archive_card",
+            "delay": "7 days"
+          }
+        ],
+        "butler_command": "when a card is moved to list \"Tamamlandı\", add the green label to the card, and add a comment \"@board Proje tamamlandı! ✅\", and after 7 days archive the card"
+      },
+      {
+        "name": "Kurgu Başlangıç Bildirimi",
+        "trigger": {
+          "type": "card_moved_to_list",
+          "list_name": "Kurgu Aşamasında"
+        },
+        "actions": [
+          {
+            "type": "add_orange_label",
+            "label_name": "🎬 Kurgu Devam Ediyor"
+          },
+          {
+            "type": "set_due_date",
+            "due_in": "3 days"
+          },
+          {
+            "type": "add_comment",
+            "text": "⏰ Tahmini teslim: {duedate}\nEditör: {customfield:Editör Mail}"
+          }
+        ],
+        "butler_command": "when a card is moved to list \"Kurgu Aşamasında\", add the orange label to the card, and set the due date in 3 days, and add a comment \"⏰ Tahmini teslim: {duedate}\""
+      }
+    ],
+    "scheduled_rules": [
+      {
+        "name": "Haftalık Gecikme Kontrolü",
+        "trigger": {
+          "type": "scheduled",
+          "frequency": "every monday at 9:00 AM"
+        },
+        "actions": [
+          {
+            "type": "for_each_card",
+            "list_name": "Revize Bekliyor",
+            "condition": "card is older than 3 days",
+            "action": {
+              "type": "add_comment",
+              "text": "⚠️ BU REVİZE 3 GÜNDÜR BEKLİYOR!\n\nLütfen acilen önceliklendiriniz.\nEditör: {customfield:Editör Mail}"
+            }
+          }
+        ],
+        "butler_command": "every monday at 9:00 AM, for each card in list \"Revize Bekliyor\", if the card is older than 3 days, add a comment \"⚠️ Bu revize 3 gündür bekliyor. Lütfen önceliklendiriniz.\""
+      },
+      {
+        "name": "Günlük Durum Raporu",
+        "trigger": {
+          "type": "scheduled",
+          "frequency": "every day at 6:00 PM"
+        },
+        "actions": [
+          {
+            "type": "send_board_summary",
+            "to": "sertan@growlabs.com",
+            "template": "Günlük Proje Özeti:\n\n📊 Ham Görüntüler: {count:Ham Görüntüler} proje\n🎬 Kurgu Aşamasında: {count:Kurgu Aşamasında} proje\n👀 Müşteri Onayında: {count:Müşteri Onayında} proje\n⏳ Revize Bekliyor: {count:Revize Bekliyor} proje\n✅ Tamamlandı (Bugün): {count:completed:today}\n\nDetaylar için: {boardlink}"
+          }
+        ],
+        "butler_command": "every day at 6:00 PM, send an email to sertan@growlabs.com with subject \"Günlük Proje Raporu\" and a summary of all lists"
+      },
+      {
+        "name": "Haftalık Arşivleme",
+        "trigger": {
+          "type": "scheduled",
+          "frequency": "every friday at 11:00 PM"
+        },
+        "actions": [
+          {
+            "type": "archive_all_cards",
+            "list_name": "Tamamlandı",
+            "condition": "older than 7 days"
+          }
+        ],
+        "butler_command": "every friday at 11:00 PM, archive all cards in list \"Tamamlandı\" that are older than 7 days"
+      }
+    ],
+    "due_date_rules": [
+      {
+        "name": "Son Tarih Yaklaşıyor Uyarısı",
+        "trigger": {
+          "type": "due_date_approaching",
+          "when": "1 day before"
+        },
+        "actions": [
+          {
+            "type": "add_red_label",
+            "label_name": "🚨 Acil"
+          },
+          {
+            "type": "send_email",
+            "to": "{customfield:Editör Mail}",
+            "subject": "🚨 Acil: {cardname} yarın teslim!",
+            "body": "Proje {cardname} için son tarih yarın!\n\nLütfen acilen kontrol edin: {cardlink}"
+          },
+          {
+            "type": "add_comment",
+            "text": "🚨 UYARI: Son tarih 1 gün kaldı! @{members}"
+          }
+        ],
+        "butler_command": "when the due date is 1 day away, add the red label to the card, and send an email to {customfield:editörmail} with subject \"Acil: {cardname} yarın teslim!\", and add a comment \"🚨 UYARI: Son tarih 1 gün kaldı!\""
+      },
+      {
+        "name": "Son Tarih Geçti",
+        "trigger": {
+          "type": "due_date_passed",
+          "when": "same day"
+        },
+        "actions": [
+          {
+            "type": "add_red_label",
+            "label_name": "⏰ GEÇİKMİŞ"
+          },
+          {
+            "type": "move_to_top",
+            "list": "current"
+          },
+          {
+            "type": "add_comment",
+            "text": "❌ SON TARİH GEÇTİ!\n\nBu proje acilen tamamlanmalı.\nMüşteri: {customfield:Müşteri Telefon}\nEditör: {customfield:Editör Mail}"
+          }
+        ],
+        "butler_command": "when a due date has passed, add the red label to the card, and move the card to the top of the list, and add a comment \"❌ SON TARİH GEÇTİ! Bu proje acilen tamamlanmalı.\""
+      }
+    ],
+    "button_rules": [
+      {
+        "name": "Müşteriye Video Gönderildi",
+        "button_text": "📤 Müşteriye Gönderildi",
+        "location": "card_back",
+        "actions": [
+          {
+            "type": "move_card",
+            "to_list": "Müşteri Onayında"
+          },
+          {
+            "type": "add_comment",
+            "text": "📤 Video müşteriye gönderildi - {date} {time}\nGönderen: {username}"
+          }
+        ],
+        "butler_command": "create a card button that moves the card to list \"Müşteri Onayında\" and adds a comment \"📤 Video müşteriye gönderildi - {date} {time}\""
+      },
+      {
+        "name": "Revize Tamamlandı",
+        "button_text": "✅ Revize Tamamlandı",
+        "location": "card_back",
+        "actions": [
+          {
+            "type": "move_card",
+            "to_list": "Müşteri Onayında"
+          },
+          {
+            "type": "remove_label",
+            "color": "yellow"
+          },
+          {
+            "type": "add_comment",
+            "text": "✅ Revize tamamlandı, tekrar müşteri onayına gönderildi\nTamamlayan: {username}"
+          }
+        ],
+        "butler_command": "create a card button that moves the card to list \"Müşteri Onayında\", removes all yellow labels, and adds a comment \"✅ Revize tamamlandı\""
+      },
+      {
+        "name": "Acil İşaretle",
+        "button_text": "🚨 Acil İşaretle",
+        "location": "card_back",
+        "actions": [
+          {
+            "type": "add_red_label",
+            "label_name": "🚨 Acil"
+          },
+          {
+            "type": "set_due_date",
+            "due_in": "1 day"
+          },
+          {
+            "type": "move_to_top",
+            "list": "current"
+          },
+          {
+            "type": "add_comment",
+            "text": "🚨 Proje acil olarak işaretlendi!\nİşaretleyen: {username}\nSon tarih: {duedate}"
+          }
+        ],
+        "butler_command": "create a card button that adds the red label, sets the due date in 1 day, moves the card to the top of the list, and adds a comment \"🚨 Proje acil olarak işaretlendi!\""
+      }
+    ],
+    "custom_field_rules": [
+      {
+        "name": "Editör Mail Eklendi - Bildirim",
+        "trigger": {
+          "type": "custom_field_set",
+          "field_name": "Editör Mail"
+        },
+        "actions": [
+          {
+            "type": "add_comment",
+            "text": "✉️ Editör mail adresi eklendi: {customfield:Editör Mail}"
+          }
+        ],
+        "butler_command": "when custom field \"Editör Mail\" is set, add a comment \"✉️ Editör mail adresi eklendi: {customfield:Editör Mail}\""
+      },
+      {
+        "name": "Video Linki Eklendi - Bildirim",
+        "trigger": {
+          "type": "custom_field_set",
+          "field_name": "Video Linki"
+        },
+        "actions": [
+          {
+            "type": "add_comment",
+            "text": "🎥 Video linki eklendi: {customfield:Video Linki}\n\nVideo müşteriye gönderilebilir."
+          }
+        ],
+        "butler_command": "when custom field \"Video Linki\" is set, add a comment \"🎥 Video linki eklendi\""
+      }
+    ]
+  },
+  "installation_instructions": {
+    "steps": [
+      "1. Trello panonuzu açın",
+      "2. Sağ üst menüden 'Automation' (Butler) seçeneğine tıklayın",
+      "3. 'Create Command' veya 'Rules' butonuna tıklayın",
+      "4. Yukarıdaki 'butler_command' değerlerini kopyalayıp Butler arayüzüne yapıştırın",
+      "5. Her kuralı test edin ve aktif hale getirin",
+      "6. Custom field isimlerinin tam olarak eşleştiğinden emin olun"
+    ],
+    "notes": [
+      "Butler kuralları Trello Business Class veya üstü planlarda mevcuttur",
+      "Ücretsiz planda aylık 50 Butler komutu limitiniz vardır",
+      "Email gönderimi için Trello'nun email entegrasyonunu aktif etmeniz gerekir",
+      "Custom field isimleri büyük/küçük harf duyarlıdır - tam eşleşme gereklidir"
+    ]
+  },
+  "testing": {
+    "test_scenarios": [
+      {
+        "test": "Kart Taşıma Testi",
+        "steps": [
+          "1. Bir test kartı oluşturun",
+          "2. 'Editör Mail' alanına kendi email adresinizi ekleyin",
+          "3. Kartı 'Revize Bekliyor' listesine taşıyın",
+          "4. Email aldığınızı doğrulayın",
+          "5. Kartta otomatik yorum eklendiğini kontrol edin"
+        ]
+      },
+      {
+        "test": "Due Date Uyarısı Testi",
+        "steps": [
+          "1. Bir karta yarın için due date ekleyin",
+          "2. Butler kuralının tetiklenip tetiklenmediğini kontrol edin",
+          "3. Kırmızı etiketin eklendiğini doğrulayın"
+        ]
+      }
+    ]
+  }
+}
