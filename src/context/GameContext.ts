@@ -4,6 +4,11 @@ import { ExchangeEngine } from '../wallet/ExchangeEngine';
 import { MarketEngine }   from '../market/MarketEngine';
 import { EventPipeline }  from '../events/EventPipeline';
 import { Player, UserId } from '../wallet/types';
+import { PgPool }          from '../db/PgPool';
+import { PgWalletEngine }  from '../db/PgWalletEngine';
+import { PgSquadManager }  from '../db/PgSquadManager';
+import { PgMarketEngine }  from '../db/PgMarketEngine';
+import { PgExchangeEngine } from '../db/PgExchangeEngine';
 
 // ── GameContext ───────────────────────────────────────────────────────────────
 //
@@ -52,6 +57,48 @@ export function registerPlayers(
   for (const { player, basePrice } of players) {
     ctx.market.registerPlayer(player.id, basePrice);
     ctx.exchange.setPrice(player.id, basePrice);
+  }
+}
+
+// ── PostgreSQL-backed context ─────────────────────────────────────────────────
+//
+// createPgContext(pool) → tüm motorlar veritabanına yazılır.
+// Double-spend önleme: SELECT FOR UPDATE (WalletEngine'deki mutex'in yerini alır).
+// Yatay ölçekleme: birden fazla sunucu aynı DB'ye bağlanabilir.
+
+export interface PgGameContext {
+  wallet:   PgWalletEngine;
+  squad:    PgSquadManager;
+  exchange: PgExchangeEngine;
+  market:   PgMarketEngine;
+  pool:     PgPool;
+}
+
+export function createPgContext(pool: PgPool): PgGameContext {
+  const wallet   = new PgWalletEngine(pool);
+  const squad    = new PgSquadManager(pool);
+  const market   = new PgMarketEngine(pool);
+  const exchange = new PgExchangeEngine(wallet, squad, market);
+  return { wallet, squad, exchange, market, pool };
+}
+
+export async function bootstrapPgUser(
+  ctx:            PgGameContext,
+  userId:         UserId,
+  initialBalance: number,
+): Promise<void> {
+  await ctx.wallet.createWallet(userId, initialBalance);
+  await ctx.squad.createSquad(userId);
+}
+
+export async function registerPgPlayers(
+  ctx:     PgGameContext,
+  players: Array<{ player: Player; basePrice: number }>,
+): Promise<void> {
+  for (const { player, basePrice } of players) {
+    await ctx.market.registerPlayerFull(
+      player.id, player.name, player.position, basePrice,
+    );
   }
 }
 

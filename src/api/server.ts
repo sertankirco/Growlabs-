@@ -1,7 +1,7 @@
 import { createServer } from 'http';
 import { HttpRouter }    from './HttpRouter';
 import { buildHandlers } from './handlers';
-import { createGameContext, registerPlayers } from '../context/GameContext';
+import { createGameContext, registerPlayers, createPgContext, registerPgPlayers, bootstrapPgUser } from '../context/GameContext';
 import { WsServer }           from '../ws/WsServer';
 import { WORLD_CUP_PLAYERS }  from '../mock/MatchSimulator';
 import { PlayerRegistry }     from '../feed/PlayerRegistry';
@@ -11,11 +11,15 @@ import { WebhookReceiver }    from '../feed/WebhookReceiver';
 import { FeedReplay }         from '../feed/FeedReplay';
 import { ProviderId }         from '../feed/types';
 import { json }               from './HttpRouter';
+import { PgPool, parseDatabaseUrl } from '../db/PgPool';
+import { migrate } from '../db/migrate';
 
-const PORT = Number(process.env.PORT ?? 3000);
+const PORT   = Number(process.env.PORT ?? 3000);
+const DB_URL = process.env.DATABASE_URL;
 
 // ── Uygulama Başlatma ─────────────────────────────────────────────────────────
 
+// In-memory context (varsayılan — her zaman hazır)
 const ctx      = createGameContext();
 const router   = new HttpRouter();
 const wsServer = new WsServer(ctx);
@@ -23,6 +27,18 @@ const h        = buildHandlers(ctx);
 
 // Tüm WC2026 oyuncularını piyasaya kaydet
 registerPlayers(ctx, WORLD_CUP_PLAYERS.map(p => ({ player: p, basePrice: p.marketPrice })));
+
+// PostgreSQL'e arka planda bağlan (DATABASE_URL varsa)
+if (DB_URL) {
+  const pool = new PgPool(parseDatabaseUrl(DB_URL), 10);
+  migrate(pool)
+    .then(() => registerPgPlayers(
+      createPgContext(pool),
+      WORLD_CUP_PLAYERS.map(p => ({ player: p, basePrice: p.marketPrice })),
+    ))
+    .then(() => console.log('🐘  PostgreSQL hazır — kalıcı depolama aktif'))
+    .catch(err => console.warn('⚠️  PostgreSQL başlatma hatası (in-memory modda devam):', err.message));
+}
 
 // ── Feed katmanı kurulumu ─────────────────────────────────────────────────────
 

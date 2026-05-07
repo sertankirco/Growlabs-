@@ -136,6 +136,28 @@ KORUMA İLE (Per-user Async Mutex):
 
 ---
 
+### Persistent Veritabanı Katmanı (v0.6)
+
+In-memory motorların yerine geçen, yatay ölçeklenebilir PostgreSQL-backed implementasyon:
+
+| Bileşen | In-Memory (test) | PostgreSQL (production) |
+|---|---|---|
+| **Double-spend** | Per-user async mutex | `SELECT ... FOR UPDATE` |
+| **İdempotency** | HashMap | `UNIQUE` kısıtlama + NULL trick |
+| **Kapasitesi** | Tek işlem | N sunucu, aynı DB |
+| **Bağlantı** | — | Wire protocol v3, sıfır bağımlılık |
+
+```
+DATABASE_URL=postgres://user:pass@db:5432/wc2026 npm start
+```
+
+Sistem başlatırken `DATABASE_URL` varsa:
+1. `migrate()` → şema oluşturulur / güncellenir
+2. `PgPool` (10 bağlantı) → `PgWalletEngine`, `PgSquadManager`, `PgMarketEngine` aktifleşir
+3. `SELECT ... FOR UPDATE` → veritabanı seviyesinde kilitler in-memory mutex'i devre dışı bırakır
+
+---
+
 ### Canlı Veri Entegrasyonu
 
 ```
@@ -201,11 +223,21 @@ Değer(t) = Baz_Fiyat
 │   ├── mock/
 │   │   └── MatchSimulator.ts     — WC2026 oyuncu kadrosu + maç senaryoları
 │   ├── context/
-│   │   └── GameContext.ts        — Tüm bileşenlerin dependency wiring'i
+│   │   └── GameContext.ts        — createGameContext() + createPgContext()
+│   ├── db/                       — v0.6: Kalıcı veritabanı katmanı
+│   │   ├── PgClient.ts           — PostgreSQL wire protocol v3 (sıfır bağımlılık)
+│   │   ├── PgPool.ts             — Bağlantı havuzu + withTransaction()
+│   │   ├── schema.sql            — DDL: wallets, transactions, squads, market
+│   │   ├── migrate.ts            — Migration runner
+│   │   ├── PgWalletEngine.ts     — SELECT FOR UPDATE çift harcama koruması
+│   │   ├── PgSquadManager.ts     — Transactional kadro yönetimi
+│   │   ├── PgMarketEngine.ts     — Persistent fiyat geçmişi + volatilite
+│   │   ├── PgExchangeEngine.ts   — Async alım/satım orkestrasyon
+│   │   └── __tests__/db.test.ts  — Entegrasyon testleri (DATABASE_URL gerekir)
 │   └── api/
 │       ├── HttpRouter.ts         — Sıfır bağımlılıklı HTTP router
 │       ├── handlers.ts           — 12 REST endpoint handler'ı
-│       └── server.ts             — Sunucu bootstrap (PORT=3000)
+│       └── server.ts             — Sunucu bootstrap (PORT=3000, DATABASE_URL opsiyonel)
 ├── Landingpage                   — Tanıtım sayfası (HTML)
 ├── package.json
 └── tsconfig.json
@@ -260,7 +292,10 @@ NODE_PATH=/opt/node22/lib/node_modules \
 ```
 npm test
 
-# tests 74  |  pass 74  |  fail 0
+# tests 94  |  pass 94  |  fail 0
+
+# PostgreSQL entegrasyon testleri (DATABASE_URL gerekir):
+DATABASE_URL=postgres://user:pass@localhost/wc2026 npm run test:db
 ```
 
 ---
@@ -274,7 +309,7 @@ npm test
 | **v0.3** | REST API (12 endpoint, sıfır bağımlılık) | ✅ Tamamlandı |
 | **v0.4** | WebSocket gerçek zamanlı push (RFC 6455, sıfır bağımlılık) | ✅ Tamamlandı |
 | **v0.5** | DataFeedAdapter — Sportradar + Opta normalize + webhook güvenliği | ✅ Tamamlandı |
-| **v0.6** | Persistent veritabanı (PostgreSQL + transactional kilit) | Planlı |
+| **v0.6** | Persistent veritabanı (PostgreSQL + transactional kilit) | ✅ Tamamlandı |
 | **v1.0** | Mobil uygulama (React Native) + Tinder-style UI | 2026 öncesi |
 
 ---
