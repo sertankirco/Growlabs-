@@ -2,8 +2,15 @@ import { createServer } from 'http';
 import { HttpRouter }    from './HttpRouter';
 import { buildHandlers } from './handlers';
 import { createGameContext, registerPlayers } from '../context/GameContext';
-import { WsServer }      from '../ws/WsServer';
-import { WORLD_CUP_PLAYERS } from '../mock/MatchSimulator';
+import { WsServer }           from '../ws/WsServer';
+import { WORLD_CUP_PLAYERS }  from '../mock/MatchSimulator';
+import { PlayerRegistry }     from '../feed/PlayerRegistry';
+import { SportradarAdapter }  from '../feed/SportradarAdapter';
+import { OptaAdapter }        from '../feed/OptaAdapter';
+import { WebhookReceiver }    from '../feed/WebhookReceiver';
+import { FeedReplay }         from '../feed/FeedReplay';
+import { ProviderId }         from '../feed/types';
+import { json }               from './HttpRouter';
 
 const PORT = Number(process.env.PORT ?? 3000);
 
@@ -16,6 +23,15 @@ const h        = buildHandlers(ctx);
 
 // Tüm WC2026 oyuncularını piyasaya kaydet
 registerPlayers(ctx, WORLD_CUP_PLAYERS.map(p => ({ player: p, basePrice: p.marketPrice })));
+
+// ── Feed katmanı kurulumu ─────────────────────────────────────────────────────
+
+const registry = new PlayerRegistry();
+const srAdapter   = new SportradarAdapter(registry);
+const optaAdapter = new OptaAdapter(registry);
+const webhook     = new WebhookReceiver(ctx.pipeline);
+webhook.register(srAdapter);
+webhook.register(optaAdapter);
 
 // ── Route Tanımları ───────────────────────────────────────────────────────────
 
@@ -36,11 +52,35 @@ router.get ('/leaderboard',            h.leaderboard);
 
 // GET /ws/stats — bağlı istemci sayısı
 router.get('/ws/stats', ({ res }) => {
-  const { json } = require('./HttpRouter');
   json(res, 200, {
     connections: wsServer.getConnectionCount(),
     timestamp:   new Date().toISOString(),
   });
+});
+
+// POST /feed/webhook/:provider?matchId=xxx — Sportradar/Opta webhook alıcısı
+router.post('/feed/webhook/:provider', async ({ req, res, params, query }) => {
+  const provider = params.provider.toUpperCase() as ProviderId;
+  const matchId  = query['matchId'] ?? query['match_id'] ?? 'unknown';
+  await webhook.handle(req, res, provider, matchId);
+});
+
+// POST /feed/replay/:scenario — dev modunda maç simülasyonu başlat
+router.post('/feed/replay/:scenario', async ({ res, params }) => {
+  const scenario = params.scenario as 'final' | 'random';
+  const replay   = new FeedReplay(ctx.pipeline);
+  replay.loadScenario(scenario);
+  // Arkaplanda çalıştır, anında yanıt ver
+  replay.start(50).catch(console.error);
+  json(res, 202, {
+    message:  `Replay başlatıldı: ${scenario}`,
+    note:     'Eventler WS üzerinden yayınlanacak',
+  });
+});
+
+// GET /feed/players — kayıtlı player mapping'leri
+router.get('/feed/players', ({ res }) => {
+  json(res, 200, { players: registry.getAll() });
 });
 
 // ── HTTP + WebSocket Sunucusu (aynı port) ─────────────────────────────────────

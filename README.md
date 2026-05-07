@@ -273,7 +273,7 @@ npm test
 | **v0.2** | Performance Event Pipeline + Market Motoru | ✅ Tamamlandı |
 | **v0.3** | REST API (12 endpoint, sıfır bağımlılık) | ✅ Tamamlandı |
 | **v0.4** | WebSocket gerçek zamanlı push (RFC 6455, sıfır bağımlılık) | ✅ Tamamlandı |
-| **v0.5** | Sportradar / Opta canlı veri entegrasyonu | Planlı |
+| **v0.5** | DataFeedAdapter — Sportradar + Opta normalize + webhook güvenliği | ✅ Tamamlandı |
 | **v0.6** | Persistent veritabanı (PostgreSQL + transactional kilit) | Planlı |
 | **v1.0** | Mobil uygulama (React Native) + Tinder-style UI | 2026 öncesi |
 
