@@ -184,13 +184,28 @@ Değer(t) = Baz_Fiyat
 ```
 /
 ├── src/
-│   └── wallet/
-│       ├── types.ts              — Domain modeli
-│       ├── errors.ts             — Hata sınıfları
-│       ├── WalletEngine.ts       — Atomik bakiye motoru
-│       ├── SquadManager.ts       — 11+3 kadro kuralı
-│       ├── ExchangeEngine.ts     — Alım/satım orkestrasyon
-│       └── __tests__/            — 43 test (çift harcama, idempotency, limitler)
+│   ├── wallet/
+│   │   ├── types.ts              — Domain modeli
+│   │   ├── errors.ts             — Hata sınıfları
+│   │   ├── WalletEngine.ts       — Atomik bakiye motoru (double-spend korumalı)
+│   │   ├── SquadManager.ts       — 11+3 kadro kuralı
+│   │   ├── ExchangeEngine.ts     — Alım/satım orkestrasyon
+│   │   └── __tests__/
+│   ├── events/
+│   │   ├── types.ts              — MatchEvent, DispatchResult
+│   │   ├── PerformanceCalculator.ts  — Ödül/ceza tablosu (8 event tipi × 4 pozisyon)
+│   │   ├── EventPipeline.ts      — Ham event → cüzdan + piyasa güncellemesi
+│   │   └── __tests__/
+│   ├── market/
+│   │   └── MarketEngine.ts       — Volatilite motoru (kayan talep penceresi)
+│   ├── mock/
+│   │   └── MatchSimulator.ts     — WC2026 oyuncu kadrosu + maç senaryoları
+│   ├── context/
+│   │   └── GameContext.ts        — Tüm bileşenlerin dependency wiring'i
+│   └── api/
+│       ├── HttpRouter.ts         — Sıfır bağımlılıklı HTTP router
+│       ├── handlers.ts           — 12 REST endpoint handler'ı
+│       └── server.ts             — Sunucu bootstrap (PORT=3000)
 ├── Landingpage                   — Tanıtım sayfası (HTML)
 ├── package.json
 └── tsconfig.json
@@ -198,9 +213,34 @@ Değer(t) = Baz_Fiyat
 
 ---
 
-## Test Edilmiş Senaryolar
+## REST API
 
-Tüm kritik senaryolar otomatik testlerle kapsanmıştır:
+Sunucuyu başlat:
+
+```bash
+NODE_PATH=/opt/node22/lib/node_modules \
+  TS_NODE_TRANSPILE_ONLY=1 \
+  node --require ts-node/register src/api/server.ts
+```
+
+| Method | Endpoint | Açıklama |
+|--------|----------|----------|
+| GET | `/players` | Piyasadaki tüm oyuncular |
+| GET | `/market` | Anlık fiyat tablosu |
+| GET | `/market/:playerId` | Oyuncu fiyatı + geçmişi |
+| POST | `/users` | Kullanıcı oluştur |
+| GET | `/wallet/:userId` | Cüzdan durumu |
+| GET | `/wallet/:userId/history` | İşlem geçmişi |
+| GET | `/squad/:userId` | Kadro görünümü |
+| POST | `/transfer/buy` | Oyuncu satın al |
+| POST | `/transfer/sell` | Oyuncu sat |
+| POST | `/match/start` | Maç başlat |
+| POST | `/match/event` | Canlı maç eventi gönder |
+| GET | `/leaderboard` | Liderlik tablosu |
+
+---
+
+## Test Edilmiş Senaryolar
 
 ```
 ✓ Bakiyeyi aşan iki eşzamanlı satın alım → yalnızca biri kabul edilir
@@ -210,12 +250,17 @@ Tüm kritik senaryolar otomatik testlerle kapsanmıştır:
 ✓ 11+3 kapasite limiti → 12. ve 4. oyuncu reddedilir
 ✓ Performans kazancı → anlık bakiye güncellemesi
 ✓ Satın alma + satış döngüsü → uçtan uca tutarlılık
+✓ Gol eventi → sahibi kullanıcı cüzdanı 200 coin artar
+✓ Kırmızı kart → tüm pozisyonlarda −100 coin cezası
+✓ Fiyat volatilite limiti → tek event maks ±%30 değişim
+✓ Alım baskısı fiyatı artırır; satım baskısı fiyatı düşürür
+✓ WC2026 final simülasyonu → 12 event, 2 kullanıcı, tutarlı sonuç
 ```
 
 ```
 npm test
 
-# tests 43  |  pass 43  |  fail 0
+# tests 62  |  pass 62  |  fail 0
 ```
 
 ---
@@ -225,10 +270,11 @@ npm test
 | Aşama | Kapsam | Durum |
 |---|---|---|
 | **v0.1** | Wallet & Exchange Engine çekirdeği | ✅ Tamamlandı |
-| **v0.2** | Canlı veri entegrasyonu (Sportradar mock) | Planlı |
-| **v0.3** | Market volatilite motoru | Planlı |
+| **v0.2** | Performance Event Pipeline + Market Motoru | ✅ Tamamlandı |
+| **v0.3** | REST API (12 endpoint, sıfır bağımlılık) | ✅ Tamamlandı |
 | **v0.4** | WebSocket tabanlı gerçek zamanlı güncellemeler | Planlı |
-| **v0.5** | Liderlik tablosu ve ödül sistemi | Planlı |
+| **v0.5** | Sportradar / Opta canlı veri entegrasyonu | Planlı |
+| **v0.6** | Persistent veritabanı (PostgreSQL + transactional kilit) | Planlı |
 | **v1.0** | Mobil uygulama (React Native) + Tinder-style UI | 2026 öncesi |
 
 ---
