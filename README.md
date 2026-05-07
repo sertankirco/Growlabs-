@@ -1,0 +1,261 @@
+# ⚽ World Cup 2026: Live Stock & Manager
+
+> **Geleneksel fantezi futbolun ötesinde — Gerçek zamanlı bir futbol borsası.**
+> Maç izlerken portföyünü yönet, performansla kazan, global rekabette zirveye çık.
+
+---
+
+## Vizyon
+
+Piyasadaki menajerlik oyunları statik bir yapıya sahiptir: haftada bir transfer, sabit puan tablosu, sınırlı strateji alanı. **World Cup 2026: Live Stock & Manager** bu kalıbı kırıyor.
+
+Bu oyunda **puan yoktur.** Her eylem nakde dönüşür. Kullanıcılar bir takım yöneticisi değil, bir **futbol portföyü yöneticisidir.** 2026 Dünya Kupası boyunca anlık performans verileriyle değer kazanan oyuncuları alır, satar ve döngüsel bir ekonomi içinde servetlerini büyütürler.
+
+Basitlik ve dinamizm — aynı anda.
+
+---
+
+## Temel Oyun Mekanikleri
+
+### Kadro Yapısı — 11 + 3
+
+| Pozisyon | Sayı | Rolü |
+|---|---|---|
+| As Kadro | 11 | Ana gelir kaynağı; her performans anında nakit üretir |
+| Yedek Kulübesi | 3 | Stratejik rezerv; nakit akışı veya acil satış için tutulur |
+
+Kadro dolmadan önce transfer yapılabilir. Sınır yalnızca bütçedir.
+
+---
+
+### Canlı Performans Ekonomisi — Performance-to-Cash
+
+Geleneksel puan sisteminin yerini tamamen nakit akışı alır:
+
+| Olay | Etkilenen Pozisyon | Ödeme Tipi |
+|---|---|---|
+| Gol | Forvet, Orta Saha | Anlık yüksek nakit girişi |
+| Asist | Orta Saha, Defans | Anlık nakit girişi |
+| Clean Sheet | Kaleci, Defans | Maç sonu büyük bonus ödemesi |
+| Sarı/Kırmızı Kart | Tüm pozisyonlar | Nakit kesintisi |
+| İnsan Hataları (penaltı verme vb.) | Defans, Kaleci | Dinamik ceza |
+
+> Maç canlı akarken kullanıcının cüzdanındaki rakam değişiyor. Bu his, oyunun kalbidir.
+
+---
+
+### Sınırsız Borsa — Unlimited Trading
+
+- **Sıfır transfer limiti:** Para yettiği sürece, maç ortasında bile alım-satım yapılabilir.
+- **Dinamik fiyatlandırma:** Oyuncu değerleri gerçek dünya performansı ve oyun içi arz-talep dengesine göre sürekli güncellenir.
+- **Volatilite mekanizması:** Ani değer çöküşlerini ve balon oluşumlarını önleyen dengeleyici algoritmalar piyasayı stabil tutar.
+
+---
+
+## Büyük Ödül
+
+Turnuva sonunda global liderlik tablosunda **1. sırayı** alan kullanıcıya:
+
+> **Kendi tuttuğu takımın 2 adet sezonluk kombine bileti**
+
+Saf finansal motivasyonun ötesinde, duygusal bağ kuran bir ödül yapısı. Tuttuğun takımı takip etmek artık bir rekabet haline geliyor.
+
+---
+
+## Teknik Mimari
+
+### Genel Yaklaşım
+
+Sistem, yüksek eşzamanlılık altında tutarlılığı garanti eden **event-driven** bir mikro-servis mimarisine dayanır. Tek bir gol eventi, etkilenen tüm kullanıcı cüzdanlarını **1 saniye altında** güncelleyebilecek şekilde tasarlanmıştır.
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    KULLANICI KATMANI                        │
+│         Mobile App  ──  WebSocket  ──  Live Dashboard       │
+└────────────────────────────┬────────────────────────────────┘
+                             │ Gerçek Zamanlı Olaylar
+┌────────────────────────────▼────────────────────────────────┐
+│                    OLAY MOTORU (Event Bus)                  │
+│   Sportradar / Opta API  →  Event Normalizer  →  Dispatcher │
+└──────┬──────────────────────────┬───────────────────────────┘
+       │                          │
+┌──────▼──────────┐   ┌───────────▼──────────────────────────┐
+│  MARKET ENGINE  │   │         WALLET ENGINE                │
+│                 │   │                                      │
+│ Fiyat Güncelle  │   │  reserveFunds()  ← Çift harcama     │
+│ Volatilite Kont.│   │  commitReservation()    koruması     │
+│ Arz/Talep Hesap │   │  rollbackReservation()               │
+│                 │   │  credit()  ← Performans kazancı      │
+└─────────────────┘   └──────────────────────────────────────┘
+       │                          │
+┌──────▼──────────────────────────▼───────────────────────────┐
+│                  VERİ KATMANI                               │
+│    Transactional DB  ──  Event Log  ──  Leaderboard Cache   │
+└─────────────────────────────────────────────────────────────┘
+```
+
+---
+
+### Wallet & Exchange Engine
+
+Projenin finansal çekirdeği. Binlerce eşzamanlı transfer isteği altında **double-spending** (çift harcama) hatasını tamamen önler.
+
+#### Çift Harcama Önleme — İki Katmanlı Koruma
+
+**Sorun:** İki işlem aynı anda bakiyeyi okur, her ikisi de yeterli gördüğü için devam eder, toplam harcama bakiyeyi aşar.
+
+**Çözüm: İki aşamalı rezervasyon protokolü**
+
+```
+Kullanıcı → buyPlayer(A, 600₺) ──┐
+Kullanıcı → buyPlayer(B, 600₺) ──┘   Bakiye = 1000₺
+
+KORUMA OLMADAN:
+  Thread A okur 1000 → Thread B okur 1000
+  → İkisi de 600₺ harcayabilir görür
+  → Toplam 1200₺ harcanır  ✗  DOUBLE SPEND
+
+KORUMA İLE (Per-user Async Mutex):
+  Thread A kilit alır → reserved=600, available=400
+  Thread B kilit alır → available=400 < 600 → HATA  ✓
+```
+
+| Aşama | Metot | Etkisi |
+|---|---|---|
+| **1. Kilitle** | `reserveFunds()` | `balance` sabit, `reserved` artar |
+| **2a. Onayla** | `commitReservation()` | `balance` düşer, `reserved` sıfırlanır |
+| **2b. Geri al** | `rollbackReservation()` | `reserved` serbest kalır, `balance` hiç değişmemiş |
+
+#### Ek Güvenceler
+
+| Mekanizma | Amacı |
+|---|---|
+| **Idempotency Key** | Ağ yeniden denemelerinde aynı işlem iki kez uygulanmaz |
+| **Version Counter** | Her cüzdan güncellemesi izlenir; DB katmanında `WHERE version=N` güvencesine dönüşür |
+| **Rollback Sonrası Key Temizliği** | Başarısız işlemler güvenle yeniden denenebilir |
+
+---
+
+### Canlı Veri Entegrasyonu
+
+```
+Sportradar / Opta API
+        │
+        │  Low-latency webhook / polling
+        ▼
+  Event Normalizer
+  ┌─────────────────────────────────────────┐
+  │  {                                      │
+  │    "event": "GOAL",                     │
+  │    "playerId": "mbappe-7",              │
+  │    "matchId": "fra-arg-semifinal",      │
+  │    "minute": 34,                        │
+  │    "timestamp": 1750000000000           │
+  │  }                                      │
+  └─────────────────────────────────────────┘
+        │
+        ▼
+  Fan-out Service  →  etkilenen kullanıcı cüzdanları
+                       < 1 saniye hedefi
+```
+
+**Hedef SLA:** Olay gerçekleşmesinden kullanıcı cüzdanı güncellenmesine kadar **≤ 1000ms**
+
+---
+
+### Piyasa Volatilite Motoru
+
+Oyuncu değerlerinin gerçekçi kalması için üç değişken sürekli hesaplanır:
+
+```
+Değer(t) = Baz_Fiyat
+         × Performans_Çarpanı(son 3 maç)
+         × Talep_Katsayısı(alım / satım oranı)
+         × Volatilite_Dampener(aşırı değerlenme limiti)
+```
+
+- **Ani çöküş koruması:** Değer tek bir maçta %30'dan fazla düşemez.
+- **Balon önleme:** Talep patlamasında arz mekanizması devreye girer.
+
+---
+
+## Proje Yapısı
+
+```
+/
+├── src/
+│   └── wallet/
+│       ├── types.ts              — Domain modeli
+│       ├── errors.ts             — Hata sınıfları
+│       ├── WalletEngine.ts       — Atomik bakiye motoru
+│       ├── SquadManager.ts       — 11+3 kadro kuralı
+│       ├── ExchangeEngine.ts     — Alım/satım orkestrasyon
+│       └── __tests__/            — 43 test (çift harcama, idempotency, limitler)
+├── Landingpage                   — Tanıtım sayfası (HTML)
+├── package.json
+└── tsconfig.json
+```
+
+---
+
+## Test Edilmiş Senaryolar
+
+Tüm kritik senaryolar otomatik testlerle kapsanmıştır:
+
+```
+✓ Bakiyeyi aşan iki eşzamanlı satın alım → yalnızca biri kabul edilir
+✓ 10 paralel istek → tutarlı bakiye, sıfır reserved leak
+✓ Ağ retries → idempotency key ile tek işlem garantisi
+✓ Rollback → available tam geri gelir, tekrar denenebilir
+✓ 11+3 kapasite limiti → 12. ve 4. oyuncu reddedilir
+✓ Performans kazancı → anlık bakiye güncellemesi
+✓ Satın alma + satış döngüsü → uçtan uca tutarlılık
+```
+
+```
+npm test
+
+# tests 43  |  pass 43  |  fail 0
+```
+
+---
+
+## Yol Haritası
+
+| Aşama | Kapsam | Durum |
+|---|---|---|
+| **v0.1** | Wallet & Exchange Engine çekirdeği | ✅ Tamamlandı |
+| **v0.2** | Canlı veri entegrasyonu (Sportradar mock) | Planlı |
+| **v0.3** | Market volatilite motoru | Planlı |
+| **v0.4** | WebSocket tabanlı gerçek zamanlı güncellemeler | Planlı |
+| **v0.5** | Liderlik tablosu ve ödül sistemi | Planlı |
+| **v1.0** | Mobil uygulama (React Native) + Tinder-style UI | 2026 öncesi |
+
+---
+
+## Hedef Kitle & Gelir Modeli
+
+**Kitle:** 2026 Dünya Kupası'nı takip eden, futbol ve strateji meraklısı global kullanıcılar.
+
+| Kanal | Model |
+|---|---|
+| Uygulama içi reklamlar | CPM / CPC |
+| Bütçe yükseltme paketleri | Micro-transaction (IAP) |
+| Marka sponsorlu özel ligler | B2B sponsorluk |
+| Premium üyelik | Gelişmiş analiz araçları, öncelikli destek |
+
+---
+
+## Katkı
+
+Bu proje aktif geliştirme aşamasındadır. Katkıda bulunmadan önce açık issue listesini inceleyebilirsin.
+
+```bash
+git clone https://github.com/sertankirco/Growlabs-
+cd Growlabs-
+npm test
+```
+
+---
+
+*World Cup 2026: Live Stock & Manager — Futbol izlemenin yeni anlamı.*
