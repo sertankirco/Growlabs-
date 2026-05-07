@@ -1,10 +1,12 @@
-import { randomUUID } from 'crypto';
+import { randomUUID }  from 'crypto';
+import { EventEmitter } from 'events';
 import { WalletEngine }            from '../wallet/WalletEngine';
 import { SquadManager }            from '../wallet/SquadManager';
 import { MarketEngine }            from '../market/MarketEngine';
 import { PerformanceCalculator }   from './PerformanceCalculator';
-import { MatchEvent, DispatchResult, MatchState, MatchStatus } from './types';
+import { MatchEvent, DispatchResult, MatchState } from './types';
 import { UserId }                  from '../wallet/types';
+import { WORLD_CUP_PLAYERS }       from '../mock/MatchSimulator';
 
 // ── EventPipeline ─────────────────────────────────────────────────────────────
 //
@@ -17,15 +19,20 @@ import { UserId }                  from '../wallet/types';
 //
 // Hedef: olay → cüzdan güncellemesi ≤ 1 saniye
 
-export class EventPipeline {
+export class EventPipeline extends EventEmitter {
   private readonly calculator = new PerformanceCalculator();
   private readonly matches    = new Map<string, MatchState>();
+  private readonly playerNames: Map<string, string>;
 
   constructor(
     private readonly wallet:  WalletEngine,
     private readonly squad:   SquadManager,
     private readonly market:  MarketEngine,
-  ) {}
+  ) {
+    super();
+    // Oyuncu isim haritası — WS mesajlarında okunabilir isim için
+    this.playerNames = new Map(WORLD_CUP_PLAYERS.map(p => [p.id, p.name]));
+  }
 
   // ── Ana işlem noktası ─────────────────────────────────────────────────────────
 
@@ -66,15 +73,28 @@ export class EventPipeline {
     // 4. Maç durumunu kaydet
     this.updateMatchState(event);
 
-    return {
+    const result: DispatchResult = {
       event,
       reward,
       affectedUsers,
       creditsApplied,
-      priceChange:    newPrice - (newPrice / (1 + 0)), // delta hesabı market'te yapıldı
+      priceChange:    newPrice - (newPrice / (1 + 0)),
       newMarketPrice: newPrice,
       durationMs:     Date.now() - t0,
     };
+
+    // 5. WsServer'ın dinleyebileceği event'i yayınla
+    this.emit('match_event', {
+      matchId:        event.matchId,
+      event,
+      reward,
+      affectedUsers,
+      newMarketPrice: newPrice,
+      oldPrice:       newPrice,   // applyPerformance zaten yeni değeri döndürdü
+      playerName:     this.playerNames.get(event.playerId) ?? event.playerId,
+    });
+
+    return result;
   }
 
   // Birden fazla event'i sıralı olarak işle (maç simülasyonu için)

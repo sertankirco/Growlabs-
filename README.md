@@ -260,7 +260,7 @@ NODE_PATH=/opt/node22/lib/node_modules \
 ```
 npm test
 
-# tests 62  |  pass 62  |  fail 0
+# tests 74  |  pass 74  |  fail 0
 ```
 
 ---
@@ -272,7 +272,7 @@ npm test
 | **v0.1** | Wallet & Exchange Engine çekirdeği | ✅ Tamamlandı |
 | **v0.2** | Performance Event Pipeline + Market Motoru | ✅ Tamamlandı |
 | **v0.3** | REST API (12 endpoint, sıfır bağımlılık) | ✅ Tamamlandı |
-| **v0.4** | WebSocket tabanlı gerçek zamanlı güncellemeler | Planlı |
+| **v0.4** | WebSocket gerçek zamanlı push (RFC 6455, sıfır bağımlılık) | ✅ Tamamlandı |
 | **v0.5** | Sportradar / Opta canlı veri entegrasyonu | Planlı |
 | **v0.6** | Persistent veritabanı (PostgreSQL + transactional kilit) | Planlı |
 | **v1.0** | Mobil uygulama (React Native) + Tinder-style UI | 2026 öncesi |
