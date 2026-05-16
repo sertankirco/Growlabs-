@@ -17,10 +17,12 @@ import {
 //   - Her aşamada EventEmitter ile dış bileşenlere (WsServer) bildirim
 //
 // Olaylar:
+//   'match_upcoming'  — { matchId, homeTeam, awayTeam, startsInMs }
 //   'match_kick_off'  — { matchState }
 //   'match_half_time' — { matchState }
 //   'match_full_time' — { matchState }
 //   'match_aborted'   — { matchId }
+//   'users_credited'  — { matchId, affectedUsers }
 
 interface RunningMatch {
   scenario:  MatchScenario;
@@ -28,6 +30,7 @@ interface RunningMatch {
   abortFlag: boolean;
   startedAt: number;
   speed:     number;
+  homePlayerIds: Set<string>;   // gol atarsa home skoru artar
 }
 
 export type SimScenario = 'final' | 'random';
@@ -37,6 +40,30 @@ export class LiveMatchOrchestrator extends EventEmitter {
 
   constructor(private readonly pipeline: IUnifiedPipeline) {
     super();
+  }
+
+  // ── Duyuru (maç başlamadan önce) ──────────────────────────────────────────
+
+  announceUpcoming(
+    scenarioName: SimScenario,
+    startsInMs:   number,
+    matchId       = randomUUID(),
+  ): string {
+    const scenario = scenarioName === 'final'
+      ? buildFinalScenario()
+      : buildRandomMatch(matchId);
+
+    scenario.matchId = matchId;
+    scenario.events.forEach(e => { e.matchId = matchId; });
+
+    this.emit('match_upcoming', {
+      matchId,
+      homeTeam:   scenario.homeTeam,
+      awayTeam:   scenario.awayTeam,
+      startsInMs,
+    });
+
+    return matchId;
   }
 
   // ── Başlat ────────────────────────────────────────────────────────────────
@@ -54,24 +81,29 @@ export class LiveMatchOrchestrator extends EventEmitter {
       ? buildFinalScenario()
       : buildRandomMatch(matchId);
 
-    // Verilen matchId'yi senaryoya uygula
     scenario.matchId = matchId;
     scenario.events.forEach(e => { e.matchId = matchId; });
+
+    // Golcülerin yarısı home, yarısı away — deterministik ve basit
+    const goalScorers = scenario.events
+      .filter(e => e.type === 'GOAL')
+      .map(e => e.playerId);
+    const homePlayerIds = new Set(goalScorers.slice(0, Math.ceil(goalScorers.length / 2)));
 
     const state = this.pipeline.startMatch(matchId, scenario.homeTeam, scenario.awayTeam);
 
     const running: RunningMatch = {
       scenario,
-      state: { ...state },
-      abortFlag: false,
-      startedAt: Date.now(),
+      state:         { ...state },
+      abortFlag:     false,
+      startedAt:     Date.now(),
       speed,
+      homePlayerIds,
     };
 
     this.active.set(matchId, running);
     this.emit('match_kick_off', { matchState: { ...running.state } });
 
-    // Async oynatım — hataları yakala ama throw etme
     this.runLoop(matchId, running).catch(err => {
       console.error(`[Orchestrator] ${matchId} hata:`, err.message);
       this.active.delete(matchId);
@@ -115,10 +147,9 @@ export class LiveMatchOrchestrator extends EventEmitter {
   // ── İç döngü ─────────────────────────────────────────────────────────────
 
   private async runLoop(matchId: string, running: RunningMatch): Promise<void> {
-    const { scenario, speed } = running;
+    const { scenario, speed, homePlayerIds } = running;
     const events = [...scenario.events].sort((a, b) => a.minute - b.minute);
 
-    // Dakika başına milisaniye: speed=1 → 1 dk = 1000ms (90sn full match)
     const msPerMinute = 1000 / speed;
 
     let halfTimeEmitted = false;
@@ -127,32 +158,24 @@ export class LiveMatchOrchestrator extends EventEmitter {
     for (const event of events) {
       if (running.abortFlag) break;
 
-      // Geçen dakikalar kadar bekle
       const waitMs = (event.minute - lastMinute) * msPerMinute;
       if (waitMs > 0) await sleep(waitMs);
       if (running.abortFlag) break;
 
-      // Yarı devre geçişi
       if (!halfTimeEmitted && event.minute > 45) {
         halfTimeEmitted = true;
         running.state.status = 'HALF_TIME';
         running.state.minute = 45;
         this.emit('match_half_time', { matchState: { ...running.state } });
-        await sleep(2000 / speed);   // yarı devre arası
+        await sleep(2000 / speed);
         if (running.abortFlag) break;
         running.state.status = 'LIVE';
       }
 
       const result = await this.pipeline.dispatch(event);
 
-      // Gol sayısını güncelle (basit kural: ilk 7 oyuncu home, son 7 away)
       if (event.type === 'GOAL') {
-        const homePlayerIds = scenario.events
-          .filter(e => e.type === 'GOAL')
-          .slice(0, Math.ceil(scenario.events.filter(e => e.type === 'GOAL').length / 2))
-          .map(e => e.playerId);
-
-        if (homePlayerIds.includes(event.playerId)) {
+        if (homePlayerIds.has(event.playerId)) {
           running.state.homeScore++;
         } else {
           running.state.awayScore++;
@@ -162,14 +185,12 @@ export class LiveMatchOrchestrator extends EventEmitter {
       running.state.minute = event.minute;
       lastMinute = event.minute;
 
-      // Etkilenen kullanıcı varsa leaderboard broadcast öner
       if (result.affectedUsers.length > 0) {
         this.emit('users_credited', { matchId, affectedUsers: result.affectedUsers });
       }
     }
 
     if (!running.abortFlag) {
-      // Maç sonu — 90. dakikaya kadar bekle
       const remainingMs = (90 - lastMinute) * msPerMinute;
       if (remainingMs > 0) await sleep(remainingMs);
 

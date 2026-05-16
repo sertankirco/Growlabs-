@@ -171,11 +171,11 @@ server.listen(PORT, () => {
   autoMatchLoop();
 });
 
-// Her maç ~30 saniye (speed=3), ardından 15 saniye ara, sonra yeni maç.
+// Her maç ~30 saniye (speed=3), ardından 15 saniye ara (MATCH_UPCOMING duyurusu), yeni maç.
 // Kaldırmak için bu fonksiyonu ve çağrısını sil — başka hiçbir şey değişmez.
 async function autoMatchLoop(): Promise<void> {
-  const MATCH_SPEED  = 3;    // 1× = 90sn, 3× ≈ 30sn
-  const BREAK_MS     = 15_000;
+  const MATCH_SPEED  = 3;       // 1× = 90sn, 3× ≈ 30sn
+  const BREAK_MS     = 15_000;  // maçlar arası bekleme
 
   while (true) {
     const matchId = orchestrator.startSimulation('random', MATCH_SPEED);
@@ -188,6 +188,10 @@ async function autoMatchLoop(): Promise<void> {
     });
 
     console.log(`[AutoMatch] Maç bitti: ${matchId} — ${BREAK_MS / 1000}sn ara`);
+
+    // Ara sırasında WS bağlı herkese sonraki maçı duyur
+    orchestrator.announceUpcoming('random', BREAK_MS);
+
     await sleep(BREAK_MS);
   }
 }

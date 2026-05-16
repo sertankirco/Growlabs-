@@ -18,6 +18,7 @@ export type ServerMessage =
   | MarketUpdateMsg
   | MatchEventMsg
   | MatchStatusMsg
+  | MatchUpcomingMsg
   | LeaderboardUpdateMsg
   | SubscribedMsg
   | ErrorMsg
@@ -68,6 +69,16 @@ export interface MatchStatusMsg {
   homeScore: number;
   awayScore: number;
   minute:    number;
+  timestamp: number;
+}
+
+export interface MatchUpcomingMsg {
+  type:      'MATCH_UPCOMING';
+  matchId:   string;
+  homeTeam:  string;
+  awayTeam:  string;
+  startsInMs: number;   // kaç ms sonra başlıyor
+  wsChannel: string;    // abone olunacak kanal: "match:<matchId>"
   timestamp: number;
 }
 

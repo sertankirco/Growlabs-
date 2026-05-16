@@ -41,6 +41,18 @@ export class WsServer {
   }
 
   wireOrchestrator(orchestrator: LiveMatchOrchestrator): void {
+    orchestrator.on('match_upcoming', ({
+      matchId, homeTeam, awayTeam, startsInMs,
+    }: { matchId: string; homeTeam: string; awayTeam: string; startsInMs: number }) => {
+      // Tüm bağlı istemcilere gönder — abonelik gerektirmez
+      for (const conn of this.connections.values()) {
+        conn.send({
+          type: 'MATCH_UPCOMING', matchId, homeTeam, awayTeam,
+          startsInMs, wsChannel: `match:${matchId}`, timestamp: Date.now(),
+        });
+      }
+    });
+
     orchestrator.on('match_kick_off', ({ matchState }: { matchState: MatchState }) => {
       this.broadcast(`match:${matchState.matchId}`, {
         type: 'MATCH_STATUS', matchId: matchState.matchId, status: 'KICK_OFF',
@@ -66,6 +78,8 @@ export class WsServer {
         homeScore: matchState.homeScore, awayScore: matchState.awayScore,
         minute: 90, timestamp: Date.now(),
       });
+      // Maç bitince tüm kullanıcılara güncel leaderboard push et
+      this.pushLeaderboard();
     });
 
     orchestrator.on('match_aborted', ({ matchId }: { matchId: string }) => {
@@ -75,6 +89,29 @@ export class WsServer {
         minute: 0, timestamp: Date.now(),
       });
     });
+
+    // Coin kredisi sonrası leaderboard push — throttle: 2sn'de bir maksimum
+    let leaderboardTimer: ReturnType<typeof setTimeout> | null = null;
+    orchestrator.on('users_credited', () => {
+      if (leaderboardTimer) return;
+      leaderboardTimer = setTimeout(() => {
+        leaderboardTimer = null;
+        this.pushLeaderboard();
+      }, 2000);
+    });
+  }
+
+  private pushLeaderboard(): void {
+    this.ctx.wallet.getLeaderboard().then(entries => {
+      const top10 = entries.slice(0, 10).map((e, i) => ({
+        rank:      i + 1,
+        userId:    e.userId,
+        available: e.available,
+      }));
+      this.broadcast('leaderboard', {
+        type: 'LEADERBOARD_UPDATE', top10, timestamp: Date.now(),
+      });
+    }).catch(() => {});
   }
 
   // ── Bağlantı yönetimi ─────────────────────────────────────────────────────
