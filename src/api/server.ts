@@ -166,6 +166,34 @@ server.listen(PORT, () => {
   console.log('Maç:          POST /match/simulate  (oto) | /match/start (manuel)');
   console.log('              GET  /match/:matchId  |  GET  /matches');
   console.log('Sıralama:     GET  /leaderboard\n');
+
+  // Sunucu hazır olunca otomatik maç döngüsü başlat
+  autoMatchLoop();
 });
+
+// Her maç ~30 saniye (speed=3), ardından 15 saniye ara, sonra yeni maç.
+// Kaldırmak için bu fonksiyonu ve çağrısını sil — başka hiçbir şey değişmez.
+async function autoMatchLoop(): Promise<void> {
+  const MATCH_SPEED  = 3;    // 1× = 90sn, 3× ≈ 30sn
+  const BREAK_MS     = 15_000;
+
+  while (true) {
+    const matchId = orchestrator.startSimulation('random', MATCH_SPEED);
+    console.log(`[AutoMatch] Maç başladı: ${matchId}`);
+
+    await new Promise<void>(resolve => {
+      orchestrator.once('match_full_time', ({ matchState }) => {
+        if (matchState.matchId === matchId) resolve();
+      });
+    });
+
+    console.log(`[AutoMatch] Maç bitti: ${matchId} — ${BREAK_MS / 1000}sn ara`);
+    await sleep(BREAK_MS);
+  }
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
 
 export { server, wsServer, unified };
