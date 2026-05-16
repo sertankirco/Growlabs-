@@ -5,11 +5,12 @@ import { IncomingMessage, ServerResponse } from 'http';
 export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH';
 
 export interface RouteContext {
-  req:    IncomingMessage;
-  res:    ServerResponse;
-  params: Record<string, string>;  // URL parametreleri  :id, :userId vb.
-  body:   unknown;                  // parsed JSON body
-  query:  Record<string, string>;  // ?key=val
+  req:        IncomingMessage;
+  res:        ServerResponse;
+  params:     Record<string, string>;  // URL parametreleri  :id, :userId vb.
+  body:       unknown;                  // parsed JSON body
+  query:      Record<string, string>;  // ?key=val
+  authUserId?: string;                  // doğrulanmış userId (JWT'den)
 }
 
 export type RouteHandler = (ctx: RouteContext) => Promise<void> | void;

@@ -3,6 +3,7 @@ import { readFileSync }    from 'fs';
 import { join }            from 'path';
 import { HttpRouter }      from './HttpRouter';
 import { buildHandlers }   from './handlers';
+import { requireAuth }     from '../auth/middleware';
 import { createGameContext, registerPlayers, createPgContext, registerPgPlayers } from '../context/GameContext';
 import { toUnifiedContext, pgToUnifiedContext, UnifiedContext } from '../context/UnifiedContext';
 import { WsServer }              from '../ws/WsServer';
@@ -77,12 +78,13 @@ router.get ('/health',                 h.health);
 router.get ('/players',                h.listPlayers);
 router.get ('/market',                 h.marketAll);
 router.get ('/market/:playerId',       h.marketPlayer);
-router.post('/users',                  h.createUser);
-router.get ('/wallet/:userId',         h.getWallet);
-router.get ('/wallet/:userId/history', h.walletHistory);
-router.get ('/squad/:userId',          h.getSquad);
-router.post('/transfer/buy',           h.buyPlayer);
-router.post('/transfer/sell',          h.sellPlayer);
+router.post('/users',                  h.createUser);          // token döner
+router.post('/auth/login',             h.login);               // var olan kullanıcıya token
+router.get ('/wallet/:userId',         requireAuth(h.getWallet));
+router.get ('/wallet/:userId/history', requireAuth(h.walletHistory));
+router.get ('/squad/:userId',          requireAuth(h.getSquad));
+router.post('/transfer/buy',           requireAuth(h.buyPlayer));
+router.post('/transfer/sell',          requireAuth(h.sellPlayer));
 router.post('/match/start',            h.startMatch);
 router.post('/match/event',            h.pushMatchEvent);
 router.post('/match/simulate',         ({ res, body }) => {

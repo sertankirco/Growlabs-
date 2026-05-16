@@ -549,10 +549,17 @@ const API  = '';          // same origin
 const WS   = `ws://${location.host}`;
 let ws;
 let userId = localStorage.getItem('wc2026_userId') || '';
+let token  = localStorage.getItem('wc2026_token')  || '';
 let currentMatchId = null;
 let countdownTimer = null;
 let players = {};          // id → { name, position, price, change }
 let mySquad  = [];
+
+function authHeaders() {
+  return token
+    ? { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` }
+    : { 'Content-Type': 'application/json' };
+}
 
 // ── WebSocket ──────────────────────────────────────────────────────────────────
 function connect() {
@@ -825,9 +832,9 @@ function onWalletUpdate(msg) {
 }
 
 async function loadWallet() {
-  if (!userId) return;
+  if (!userId || !token) return;
   try {
-    const data = await fetch(`${API}/wallet/${userId}`).then(r => r.json());
+    const data = await fetch(`${API}/wallet/${userId}`, { headers: authHeaders() }).then(r => r.json());
     if (data.error) return;
     document.getElementById('wallet-balance').textContent   = data.balance.toLocaleString() + '₡';
     document.getElementById('wallet-available').textContent = data.available.toLocaleString() + '₡';
@@ -835,7 +842,7 @@ async function loadWallet() {
   } catch {}
 
   try {
-    const data = await fetch(`${API}/wallet/${userId}/history`).then(r => r.json());
+    const data = await fetch(`${API}/wallet/${userId}/history`, { headers: authHeaders() }).then(r => r.json());
     const list = document.getElementById('tx-list');
     list.innerHTML = '';
     for (const tx of (data.transactions || []).slice(0, 20)) {
@@ -854,9 +861,9 @@ async function loadWallet() {
 }
 
 async function loadSquad() {
-  if (!userId) return;
+  if (!userId || !token) return;
   try {
-    const data = await fetch(`${API}/squad/${userId}`).then(r => r.json());
+    const data = await fetch(`${API}/squad/${userId}`, { headers: authHeaders() }).then(r => r.json());
     mySquad = (data.starting || []).map(e => e.playerId)
             .concat((data.bench || []).map(e => e.playerId));
     const label = document.getElementById('squad-list');
@@ -876,10 +883,15 @@ async function loginOrCreate() {
   const input = document.getElementById('user-input').value.trim();
   if (!input) return;
 
-  // Try to get wallet first (login)
-  let res = await fetch(`${API}/wallet/${input}`);
+  // Önce login dene, yoksa kayıt ol
+  let res = await fetch(`${API}/auth/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ userId: input }),
+  });
+
   if (res.status === 404) {
-    // Create user
+    // Yeni kullanıcı oluştur
     res = await fetch(`${API}/users`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -892,7 +904,10 @@ async function loginOrCreate() {
     }
   }
 
+  const data = await res.json();
+  token  = data.token;
   userId = input;
+  localStorage.setItem('wc2026_token',  token);
   localStorage.setItem('wc2026_userId', userId);
   document.getElementById('user-input').value = '';
   document.getElementById('user-badge').textContent = userId;
@@ -903,14 +918,14 @@ async function loginOrCreate() {
 
 // ── Trade ──────────────────────────────────────────────────────────────────────
 async function doBuy() {
-  if (!userId) { showTradeResult('Önce kullanıcı oluştur', false); return; }
+  if (!token) { showTradeResult('Önce giriş yap', false); return; }
   const playerId = document.getElementById('player-select').value;
   const slot     = document.getElementById('slot-select').value;
 
   const res = await fetch(`${API}/transfer/buy`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ userId, playerId, slot }),
+    headers: authHeaders(),
+    body: JSON.stringify({ playerId, slot }),
   });
   const data = await res.json();
   if (res.ok) {
@@ -922,13 +937,13 @@ async function doBuy() {
 }
 
 async function doSell() {
-  if (!userId) { showTradeResult('Önce kullanıcı oluştur', false); return; }
+  if (!token) { showTradeResult('Önce giriş yap', false); return; }
   const playerId = document.getElementById('player-select').value;
 
   const res = await fetch(`${API}/transfer/sell`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ userId, playerId }),
+    headers: authHeaders(),
+    body: JSON.stringify({ playerId }),
   });
   const data = await res.json();
   if (res.ok) {

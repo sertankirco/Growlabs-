@@ -1,16 +1,16 @@
 import { randomUUID } from 'crypto';
 import { RouteContext, json } from './HttpRouter';
 import { UnifiedContext } from '../context/UnifiedContext';
-import { bootstrapUser } from '../context/GameContext';
 import { WORLD_CUP_PLAYERS } from '../mock/MatchSimulator';
 import { MatchEvent } from '../events/types';
-import { Player } from '../wallet/types';
+import { signToken } from '../auth/jwt';
+import { assertSelf, JWT_SECRET } from '../auth/middleware';
 
 // ── Handler Fabrikası ─────────────────────────────────────────────────────────
 //
-// Tüm handler'lar UnifiedContext üzerinde çalışır.
-// Her metot await ile çağrılır — in-memory ve PostgreSQL backend'leri için
-// aynı kod çalışır (UnifiedContext Promise döner her zaman).
+// Korumalı endpoint'ler requireAuth() sarmalayıcısı ile server.ts'de wrap edilir.
+// Handler içinde assertSelf() ile token'daki userId ile istekteki userId eşleşmesi
+// kontrol edilir.
 
 export function buildHandlers(ctx: UnifiedContext) {
 
@@ -41,105 +41,124 @@ export function buildHandlers(ctx: UnifiedContext) {
   }
 
   // POST /users  { userId, initialBalance }
+  // Herkese açık — kullanıcı oluşturur ve JWT döner
   async function createUser({ res, body }: RouteContext) {
     const { userId, initialBalance = 5000 } = (body as any) ?? {};
     if (!userId) { json(res, 400, { error: 'userId zorunlu' }); return; }
     try {
       await ctx.wallet.createWallet(userId, initialBalance);
       await ctx.squad.createSquad(userId);
-      json(res, 201, { userId, initialBalance, message: 'Kullanıcı oluşturuldu' });
+      const token = signToken(userId, JWT_SECRET);
+      json(res, 201, { userId, initialBalance, token, message: 'Kullanıcı oluşturuldu' });
     } catch (e: unknown) {
       json(res, 409, { error: (e as Error).message });
     }
   }
 
-  // GET /wallet/:userId
-  async function getWallet({ res, params }: RouteContext) {
+  // POST /auth/login  { userId }
+  // Var olan kullanıcıya token ver (dev/demo kolaylığı)
+  async function login({ res, body }: RouteContext) {
+    const { userId } = (body as any) ?? {};
+    if (!userId) { json(res, 400, { error: 'userId zorunlu' }); return; }
     try {
-      const snap      = await ctx.wallet.getWallet(params.userId);
-      const available = await ctx.wallet.getAvailable(params.userId);
-      json(res, 200, { ...snap, available });
-    } catch (e: unknown) {
-      json(res, 404, { error: (e as Error).message });
+      await ctx.wallet.getWallet(userId);   // var mı kontrol et
+      const token = signToken(userId, JWT_SECRET);
+      json(res, 200, { userId, token });
+    } catch {
+      json(res, 404, { error: 'Kullanıcı bulunamadı' });
     }
   }
 
-  // GET /wallet/:userId/history
-  async function walletHistory({ res, params }: RouteContext) {
+  // GET /wallet/:userId  [korumalı — sadece kendi cüzdanı]
+  async function getWallet(ctx2: RouteContext) {
+    if (!assertSelf(ctx2, ctx2.params.userId)) return;
     try {
-      const history = await ctx.wallet.getHistory(params.userId);
-      json(res, 200, { userId: params.userId, transactions: history });
+      const snap      = await ctx.wallet.getWallet(ctx2.params.userId);
+      const available = await ctx.wallet.getAvailable(ctx2.params.userId);
+      json(ctx2.res, 200, { ...snap, available });
     } catch (e: unknown) {
-      json(res, 404, { error: (e as Error).message });
+      json(ctx2.res, 404, { error: (e as Error).message });
     }
   }
 
-  // GET /squad/:userId
-  async function getSquad({ res, params }: RouteContext) {
+  // GET /wallet/:userId/history  [korumalı]
+  async function walletHistory(ctx2: RouteContext) {
+    if (!assertSelf(ctx2, ctx2.params.userId)) return;
     try {
-      const snap = await ctx.squad.getSquad(params.userId);
-      json(res, 200, snap);
+      const history = await ctx.wallet.getHistory(ctx2.params.userId);
+      json(ctx2.res, 200, { userId: ctx2.params.userId, transactions: history });
     } catch (e: unknown) {
-      json(res, 404, { error: (e as Error).message });
+      json(ctx2.res, 404, { error: (e as Error).message });
     }
   }
 
-  // POST /transfer/buy  { userId, playerId, slot, idempotencyKey? }
-  async function buyPlayer({ res, body }: RouteContext) {
-    const { userId, playerId, slot = 'starting', idempotencyKey } = (body as any) ?? {};
-    if (!userId || !playerId) { json(res, 400, { error: 'userId ve playerId zorunlu' }); return; }
+  // GET /squad/:userId  [korumalı]
+  async function getSquad(ctx2: RouteContext) {
+    if (!assertSelf(ctx2, ctx2.params.userId)) return;
+    try {
+      const snap = await ctx.squad.getSquad(ctx2.params.userId);
+      json(ctx2.res, 200, snap);
+    } catch (e: unknown) {
+      json(ctx2.res, 404, { error: (e as Error).message });
+    }
+  }
+
+  // POST /transfer/buy  { playerId, slot, idempotencyKey? }  [korumalı]
+  // userId artık body'den değil, token'dan alınır
+  async function buyPlayer(ctx2: RouteContext) {
+    const userId = ctx2.authUserId!;
+    const { playerId, slot = 'starting', idempotencyKey } = (ctx2.body as any) ?? {};
+    if (!playerId) { json(ctx2.res, 400, { error: 'playerId zorunlu' }); return; }
 
     const player = WORLD_CUP_PLAYERS.find(p => p.id === playerId);
-    if (!player) { json(res, 404, { error: `Oyuncu bulunamadı: ${playerId}` }); return; }
+    if (!player) { json(ctx2.res, 404, { error: `Oyuncu bulunamadı: ${playerId}` }); return; }
 
     try {
       const result = await ctx.exchange.buyPlayer(
         userId, player, slot, idempotencyKey ?? randomUUID(),
       );
       await ctx.market.recordBuy(playerId);
-      json(res, 200, {
+      json(ctx2.res, 200, {
         transaction: result.transaction,
         available:   result.available,
         newPrice:    await ctx.market.getPrice(playerId),
       });
     } catch (e: unknown) {
-      json(res, 422, { error: (e as Error).message });
+      json(ctx2.res, 422, { error: (e as Error).message });
     }
   }
 
-  // POST /transfer/sell  { userId, playerId, idempotencyKey? }
-  async function sellPlayer({ res, body }: RouteContext) {
-    const { userId, playerId, idempotencyKey } = (body as any) ?? {};
-    if (!userId || !playerId) { json(res, 400, { error: 'userId ve playerId zorunlu' }); return; }
+  // POST /transfer/sell  { playerId, idempotencyKey? }  [korumalı]
+  async function sellPlayer(ctx2: RouteContext) {
+    const userId = ctx2.authUserId!;
+    const { playerId, idempotencyKey } = (ctx2.body as any) ?? {};
+    if (!playerId) { json(ctx2.res, 400, { error: 'playerId zorunlu' }); return; }
 
     try {
       const result = await ctx.exchange.sellPlayer(
         userId, playerId, idempotencyKey ?? randomUUID(),
       );
       await ctx.market.recordSell(playerId);
-      json(res, 200, {
+      json(ctx2.res, 200, {
         transaction: result.transaction,
         available:   result.available,
         newPrice:    await ctx.market.getPrice(playerId),
       });
     } catch (e: unknown) {
-      json(res, 422, { error: (e as Error).message });
+      json(ctx2.res, 422, { error: (e as Error).message });
     }
   }
 
-  // POST /match/event  { matchId, playerId, position, type, minute }
+  // POST /match/event  [korumalı — admin işlemi]
   async function pushMatchEvent({ res, body }: RouteContext) {
     const { matchId, playerId, position, type, minute = 45 } = (body as any) ?? {};
     if (!matchId || !playerId || !position || !type) {
       json(res, 400, { error: 'matchId, playerId, position, type zorunlu' }); return;
     }
-
     const event: MatchEvent = {
-      eventId:   randomUUID(),
-      matchId, playerId, position, type, minute,
+      eventId: randomUUID(), matchId, playerId, position, type, minute,
       timestamp: Date.now(),
     };
-
     try {
       const result = await ctx.pipeline.dispatch(event);
       json(res, 200, {
@@ -155,14 +174,14 @@ export function buildHandlers(ctx: UnifiedContext) {
     }
   }
 
-  // POST /match/start  { matchId, homeTeam, awayTeam }
+  // POST /match/start
   function startMatch({ res, body }: RouteContext) {
     const { matchId = randomUUID(), homeTeam = 'Ev Sahibi', awayTeam = 'Misafir' } = (body as any) ?? {};
     const state = ctx.pipeline.startMatch(matchId, homeTeam, awayTeam);
     json(res, 201, state);
   }
 
-  // GET /leaderboard
+  // GET /leaderboard  [herkese açık]
   async function leaderboard({ res }: RouteContext) {
     const entries = await ctx.wallet.getLeaderboard();
     json(res, 200, {
@@ -171,7 +190,7 @@ export function buildHandlers(ctx: UnifiedContext) {
     });
   }
 
-  // GET /players
+  // GET /players  [herkese açık]
   async function listPlayers({ res }: RouteContext) {
     const players = await Promise.all(
       WORLD_CUP_PLAYERS.map(async p => ({
@@ -185,7 +204,7 @@ export function buildHandlers(ctx: UnifiedContext) {
   return {
     health,
     marketAll, marketPlayer,
-    createUser,
+    createUser, login,
     getWallet, walletHistory,
     getSquad,
     buyPlayer, sellPlayer,
