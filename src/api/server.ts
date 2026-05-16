@@ -3,18 +3,17 @@ import { HttpRouter }    from './HttpRouter';
 import { buildHandlers } from './handlers';
 import { createGameContext, registerPlayers, createPgContext, registerPgPlayers } from '../context/GameContext';
 import { toUnifiedContext, pgToUnifiedContext, UnifiedContext } from '../context/UnifiedContext';
-import { WsServer }           from '../ws/WsServer';
-import { WORLD_CUP_PLAYERS }  from '../mock/MatchSimulator';
-import { PlayerRegistry }     from '../feed/PlayerRegistry';
-import { SportradarAdapter }  from '../feed/SportradarAdapter';
-import { OptaAdapter }        from '../feed/OptaAdapter';
-import { WebhookReceiver }    from '../feed/WebhookReceiver';
-import { FeedReplay }         from '../feed/FeedReplay';
-import { ProviderId }         from '../feed/types';
-import { json }               from './HttpRouter';
+import { WsServer }              from '../ws/WsServer';
+import { WORLD_CUP_PLAYERS }     from '../mock/MatchSimulator';
+import { PlayerRegistry }        from '../feed/PlayerRegistry';
+import { SportradarAdapter }     from '../feed/SportradarAdapter';
+import { OptaAdapter }           from '../feed/OptaAdapter';
+import { WebhookReceiver }       from '../feed/WebhookReceiver';
+import { ProviderId }            from '../feed/types';
+import { json }                  from './HttpRouter';
 import { PgPool, parseDatabaseUrl } from '../db/PgPool';
-import { migrate }            from '../db/migrate';
-import { EventPipeline }      from '../events/EventPipeline';
+import { migrate }               from '../db/migrate';
+import { LiveMatchOrchestrator } from '../match/LiveMatchOrchestrator';
 
 const PORT   = Number(process.env.PORT ?? 3000);
 const DB_URL = process.env.DATABASE_URL;
@@ -27,7 +26,6 @@ const DB_URL = process.env.DATABASE_URL;
 // Her iki durumda da handlers aynı UnifiedContext arayüzünü kullanır.
 
 let unified: UnifiedContext;
-let activePipeline: EventPipeline | import('../db/PgEventPipeline').PgEventPipeline;
 
 if (DB_URL) {
   // ── PostgreSQL modu ───────────────────────────────────────────────────────────
@@ -40,26 +38,27 @@ if (DB_URL) {
     .then(() => console.log(`✓ PostgreSQL hazır — ${WORLD_CUP_PLAYERS.length} oyuncu yüklendi`))
     .catch(err => { console.error('PostgreSQL başlatma hatası:', err.message); process.exit(1); });
 
-  unified        = pgToUnifiedContext(pgCtx, pgCtx.pipeline as any);
-  activePipeline = pgCtx.pipeline as any;
+  unified = pgToUnifiedContext(pgCtx, pgCtx.pipeline as any);
 } else {
   // ── In-memory modu ────────────────────────────────────────────────────────────
   const ctx = createGameContext();
   registerPlayers(ctx, WORLD_CUP_PLAYERS.map(p => ({ player: p, basePrice: p.marketPrice })));
-  unified        = toUnifiedContext(ctx);
-  activePipeline = ctx.pipeline;
+  unified = toUnifiedContext(ctx);
 }
 
-const router   = new HttpRouter();
-const wsServer = new WsServer(unified.pipeline as any);
-const h        = buildHandlers(unified);
+const router       = new HttpRouter();
+const wsServer     = new WsServer(unified.pipeline as any);
+const orchestrator = new LiveMatchOrchestrator(unified.pipeline);
+const h            = buildHandlers(unified);
+
+wsServer.wireOrchestrator(orchestrator);
 
 // ── Feed katmanı ──────────────────────────────────────────────────────────────
 
 const registry    = new PlayerRegistry();
 const srAdapter   = new SportradarAdapter(registry);
 const optaAdapter = new OptaAdapter(registry);
-const webhook     = new WebhookReceiver(activePipeline as any);
+const webhook     = new WebhookReceiver(unified.pipeline as any);
 webhook.register(srAdapter);
 webhook.register(optaAdapter);
 
@@ -78,6 +77,39 @@ router.post('/transfer/buy',           h.buyPlayer);
 router.post('/transfer/sell',          h.sellPlayer);
 router.post('/match/start',            h.startMatch);
 router.post('/match/event',            h.pushMatchEvent);
+router.post('/match/simulate',         ({ res, body }) => {
+  const { scenario = 'random', speed = 1.0, matchId } = (body as any) ?? {};
+  try {
+    const id = orchestrator.startSimulation(scenario, Number(speed), matchId);
+    json(res, 202, {
+      matchId:   id,
+      scenario,
+      speed:     Number(speed),
+      message:   `Simülasyon başlatıldı — ${Math.round(90 / speed)}sn sürecek`,
+      wsChannel: `match:${id}`,
+    });
+  } catch (e: unknown) {
+    json(res, 409, { error: (e as Error).message });
+  }
+});
+router.get('/match/:matchId', ({ res, params }) => {
+  const state = orchestrator.getMatchState(params.matchId);
+  if (!state) { json(res, 404, { error: 'Maç bulunamadı' }); return; }
+  json(res, 200, {
+    ...state,
+    running: orchestrator.isRunning(params.matchId),
+  });
+});
+router.get('/matches', ({ res }) => {
+  json(res, 200, { active: orchestrator.listActive() });
+});
+router.delete('/match/:matchId', ({ res, params }) => {
+  const stopped = orchestrator.stopMatch(params.matchId);
+  json(res, stopped ? 200 : 404, stopped
+    ? { message: 'Maç durduruldu', matchId: params.matchId }
+    : { error: 'Aktif maç bulunamadı' },
+  );
+});
 router.get ('/leaderboard',            h.leaderboard);
 
 router.get('/ws/stats', ({ res }) => {
@@ -90,12 +122,14 @@ router.post('/feed/webhook/:provider', async ({ req, res, params, query }) => {
   await webhook.handle(req, res, provider, matchId);
 });
 
-router.post('/feed/replay/:scenario', async ({ res, params }) => {
+router.post('/feed/replay/:scenario', ({ res, params }) => {
   const scenario = params.scenario as 'final' | 'random';
-  const replay   = new FeedReplay(activePipeline as any);
-  replay.loadScenario(scenario);
-  replay.start(50).catch(console.error);
-  json(res, 202, { message: `Replay başlatıldı: ${scenario}`, note: 'Eventler WS üzerinden yayınlanacak' });
+  try {
+    const matchId = orchestrator.startSimulation(scenario, 50);
+    json(res, 202, { matchId, message: `Replay başlatıldı: ${scenario}`, note: 'Eventler WS üzerinden yayınlanacak' });
+  } catch (e: unknown) {
+    json(res, 409, { error: (e as Error).message });
+  }
 });
 
 router.get('/feed/players', ({ res }) => {
@@ -129,7 +163,8 @@ server.listen(PORT, () => {
   console.log(`📊  ${WORLD_CUP_PLAYERS.length} oyuncu piyasaya yüklendi\n`);
   console.log('Endpoint\'ler: /players /market /users /wallet/:id /squad/:id');
   console.log('Transfer:     POST /transfer/buy  |  /transfer/sell');
-  console.log('Maç:          POST /match/start   |  /match/event');
+  console.log('Maç:          POST /match/simulate  (oto) | /match/start (manuel)');
+  console.log('              GET  /match/:matchId  |  GET  /matches');
   console.log('Sıralama:     GET  /leaderboard\n');
 });
 

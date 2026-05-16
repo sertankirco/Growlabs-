@@ -17,6 +17,7 @@ export type ServerMessage =
   | WalletUpdateMsg
   | MarketUpdateMsg
   | MatchEventMsg
+  | MatchStatusMsg
   | LeaderboardUpdateMsg
   | SubscribedMsg
   | ErrorMsg
@@ -55,6 +56,18 @@ export interface MatchEventMsg {
   matchId: string;
   event:   MatchEvent;
   reward:  PlayerReward;
+  timestamp: number;
+}
+
+export interface MatchStatusMsg {
+  type:      'MATCH_STATUS';
+  matchId:   string;
+  status:    'KICK_OFF' | 'HALF_TIME' | 'FULL_TIME' | 'ABORTED';
+  homeTeam:  string;
+  awayTeam:  string;
+  homeScore: number;
+  awayScore: number;
+  minute:    number;
   timestamp: number;
 }
 

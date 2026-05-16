@@ -4,6 +4,8 @@ import { buildHandshakeResponse } from './WsFrame';
 import { WsConnection } from './WsConnection';
 import { ServerMessage, ClientMessage, Channel } from './types';
 import { UnifiedContext } from '../context/UnifiedContext';
+import { LiveMatchOrchestrator } from '../match/LiveMatchOrchestrator';
+import { MatchState } from '../events/types';
 
 // ── WsServer ──────────────────────────────────────────────────────────────────
 //
@@ -36,6 +38,43 @@ export class WsServer {
     });
     this.startHeartbeat();
     this.wireEventPipeline();
+  }
+
+  wireOrchestrator(orchestrator: LiveMatchOrchestrator): void {
+    orchestrator.on('match_kick_off', ({ matchState }: { matchState: MatchState }) => {
+      this.broadcast(`match:${matchState.matchId}`, {
+        type: 'MATCH_STATUS', matchId: matchState.matchId, status: 'KICK_OFF',
+        homeTeam: matchState.homeTeam, awayTeam: matchState.awayTeam,
+        homeScore: matchState.homeScore, awayScore: matchState.awayScore,
+        minute: 0, timestamp: Date.now(),
+      });
+    });
+
+    orchestrator.on('match_half_time', ({ matchState }: { matchState: MatchState }) => {
+      this.broadcast(`match:${matchState.matchId}`, {
+        type: 'MATCH_STATUS', matchId: matchState.matchId, status: 'HALF_TIME',
+        homeTeam: matchState.homeTeam, awayTeam: matchState.awayTeam,
+        homeScore: matchState.homeScore, awayScore: matchState.awayScore,
+        minute: 45, timestamp: Date.now(),
+      });
+    });
+
+    orchestrator.on('match_full_time', ({ matchState }: { matchState: MatchState }) => {
+      this.broadcast(`match:${matchState.matchId}`, {
+        type: 'MATCH_STATUS', matchId: matchState.matchId, status: 'FULL_TIME',
+        homeTeam: matchState.homeTeam, awayTeam: matchState.awayTeam,
+        homeScore: matchState.homeScore, awayScore: matchState.awayScore,
+        minute: 90, timestamp: Date.now(),
+      });
+    });
+
+    orchestrator.on('match_aborted', ({ matchId }: { matchId: string }) => {
+      this.broadcast(`match:${matchId}`, {
+        type: 'MATCH_STATUS', matchId, status: 'ABORTED',
+        homeTeam: '', awayTeam: '', homeScore: 0, awayScore: 0,
+        minute: 0, timestamp: Date.now(),
+      });
+    });
   }
 
   // ── Bağlantı yönetimi ─────────────────────────────────────────────────────
