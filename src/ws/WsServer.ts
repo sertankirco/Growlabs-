@@ -3,7 +3,7 @@ import { Socket } from 'net';
 import { buildHandshakeResponse } from './WsFrame';
 import { WsConnection } from './WsConnection';
 import { ServerMessage, ClientMessage, Channel } from './types';
-import { GameContext } from '../context/GameContext';
+import { UnifiedContext } from '../context/UnifiedContext';
 
 // ── WsServer ──────────────────────────────────────────────────────────────────
 //
@@ -26,7 +26,7 @@ export class WsServer {
   private readonly connections = new Map<string, WsConnection>();
   private heartbeatTimer?: ReturnType<typeof setInterval>;
 
-  constructor(private readonly ctx: GameContext) {}
+  constructor(private readonly ctx: UnifiedContext) {}
 
   // ── HTTP sunucusuna bağlan ─────────────────────────────────────────────────
 
@@ -133,18 +133,18 @@ export class WsServer {
 
   private wireEventPipeline(): void {
     const pipeline = this.ctx.pipeline as any;
-    if (typeof pipeline.on !== 'function') return; // EventEmitter yoksa geç
+    if (typeof pipeline?.on !== 'function') return;
 
     pipeline.on('match_event', (data: {
-      matchId:  string;
-      event:    any;
-      reward:   any;
-      affectedUsers: string[];
+      matchId:        string;
+      event:          any;
+      reward:         any;
+      affectedUsers:  string[];
       newMarketPrice: number;
-      oldPrice: number;
-      playerName: string;
+      oldPrice:       number;
+      playerName:     string;
     }) => {
-      // 1. Maç kanalına event mesajı
+      // 1. Maç kanalı
       this.broadcast(`match:${data.matchId}`, {
         type:      'MATCH_EVENT',
         matchId:   data.matchId,
@@ -153,7 +153,7 @@ export class WsServer {
         timestamp: Date.now(),
       });
 
-      // 2. Piyasa kanalına fiyat güncellemesi
+      // 2. Piyasa kanalı
       const pct = data.oldPrice > 0
         ? Math.round(((data.newMarketPrice - data.oldPrice) / data.oldPrice) * 10000) / 100
         : 0;
@@ -169,21 +169,22 @@ export class WsServer {
         timestamp: Date.now(),
       });
 
-      // 3. Etkilenen kullanıcılara cüzdan güncellemesi
+      // 3. Etkilenen kullanıcılara cüzdan güncellemesi (async — sonuç gelince push)
       for (const userId of data.affectedUsers) {
-        try {
-          const available = this.ctx.wallet.getAvailable(userId);
-          const balance   = this.ctx.wallet.getWallet(userId).balance;
+        Promise.all([
+          this.ctx.wallet.getAvailable(userId),
+          this.ctx.wallet.getWallet(userId),
+        ]).then(([available, snap]) => {
           this.broadcastToUser(userId, {
             type:      'WALLET_UPDATE',
             userId,
             available,
-            balance,
+            balance:   snap.balance,
             delta:     data.reward.coins,
             reason:    `${data.event.type}@${data.event.minute}' ${data.event.playerId}`,
             timestamp: Date.now(),
           });
-        } catch { /* kullanıcı yoksa geç */ }
+        }).catch(() => { /* kullanıcı yoksa geç */ });
       }
     });
   }

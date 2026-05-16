@@ -4,11 +4,12 @@ import { ExchangeEngine } from '../wallet/ExchangeEngine';
 import { MarketEngine }   from '../market/MarketEngine';
 import { EventPipeline }  from '../events/EventPipeline';
 import { Player, UserId } from '../wallet/types';
-import { PgPool }          from '../db/PgPool';
-import { PgWalletEngine }  from '../db/PgWalletEngine';
-import { PgSquadManager }  from '../db/PgSquadManager';
-import { PgMarketEngine }  from '../db/PgMarketEngine';
+import { PgPool }           from '../db/PgPool';
+import { PgWalletEngine }   from '../db/PgWalletEngine';
+import { PgSquadManager }   from '../db/PgSquadManager';
+import { PgMarketEngine }   from '../db/PgMarketEngine';
 import { PgExchangeEngine } from '../db/PgExchangeEngine';
+import { PgEventPipeline }  from '../db/PgEventPipeline';
 
 // ── GameContext ───────────────────────────────────────────────────────────────
 //
@@ -71,6 +72,7 @@ export interface PgGameContext {
   squad:    PgSquadManager;
   exchange: PgExchangeEngine;
   market:   PgMarketEngine;
+  pipeline: PgEventPipeline;
   pool:     PgPool;
 }
 
@@ -79,7 +81,8 @@ export function createPgContext(pool: PgPool): PgGameContext {
   const squad    = new PgSquadManager(pool);
   const market   = new PgMarketEngine(pool);
   const exchange = new PgExchangeEngine(wallet, squad, market);
-  return { wallet, squad, exchange, market, pool };
+  const pipeline = new PgEventPipeline(wallet, squad, market);
+  return { wallet, squad, exchange, market, pipeline, pool };
 }
 
 export async function bootstrapPgUser(

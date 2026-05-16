@@ -220,6 +220,19 @@ export class PgWalletEngine {
     });
   }
 
+  // ── Liderlik tablosu ─────────────────────────────────────────────────────────
+
+  async getLeaderboard(): Promise<Array<{ userId: string; balance: number; available: number }>> {
+    const r = await this.pool.query(
+      'SELECT user_id, balance, balance - reserved AS available FROM wallets ORDER BY available DESC',
+    );
+    return r.rows.map(row => ({
+      userId:    row.user_id!,
+      balance:   parseInt(row.balance ?? '0'),
+      available: parseInt(row.available ?? '0'),
+    }));
+  }
+
   // ── Geçmiş / sorgular ────────────────────────────────────────────────────────
 
   async getHistory(userId: UserId): Promise<Transaction[]> {

@@ -222,6 +222,13 @@ export class WalletEngine {
       .sort((a, b) => b.timestamp - a.timestamp);
   }
 
+  // Liderlik tablosu — tüm cüzdanlar azalan available bakiyeyle
+  getLeaderboard(): Array<{ userId: string; balance: number; available: number }> {
+    return [...this.wallets.values()]
+      .map(r => ({ userId: r.userId, balance: r.balance, available: r.balance - r.reserved }))
+      .sort((a, b) => b.available - a.available);
+  }
+
   // İdempotency key ile işlem arama (ExchangeEngine için)
   getByIdempotencyKey(key: string): Transaction | undefined {
     const txId = this.idempotency.get(key);

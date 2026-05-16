@@ -1,7 +1,8 @@
 import { createServer } from 'http';
 import { HttpRouter }    from './HttpRouter';
 import { buildHandlers } from './handlers';
-import { createGameContext, registerPlayers, createPgContext, registerPgPlayers, bootstrapPgUser } from '../context/GameContext';
+import { createGameContext, registerPlayers, createPgContext, registerPgPlayers } from '../context/GameContext';
+import { toUnifiedContext, pgToUnifiedContext, UnifiedContext } from '../context/UnifiedContext';
 import { WsServer }           from '../ws/WsServer';
 import { WORLD_CUP_PLAYERS }  from '../mock/MatchSimulator';
 import { PlayerRegistry }     from '../feed/PlayerRegistry';
@@ -12,40 +13,53 @@ import { FeedReplay }         from '../feed/FeedReplay';
 import { ProviderId }         from '../feed/types';
 import { json }               from './HttpRouter';
 import { PgPool, parseDatabaseUrl } from '../db/PgPool';
-import { migrate } from '../db/migrate';
+import { migrate }            from '../db/migrate';
+import { EventPipeline }      from '../events/EventPipeline';
 
 const PORT   = Number(process.env.PORT ?? 3000);
 const DB_URL = process.env.DATABASE_URL;
 
 // ── Uygulama Başlatma ─────────────────────────────────────────────────────────
+//
+// DATABASE_URL varsa → PostgreSQL modu (kalıcı depolama, SELECT FOR UPDATE)
+// Yoksa              → In-memory modu (testler, hızlı geliştirme)
+//
+// Her iki durumda da handlers aynı UnifiedContext arayüzünü kullanır.
 
-// In-memory context (varsayılan — her zaman hazır)
-const ctx      = createGameContext();
-const router   = new HttpRouter();
-const wsServer = new WsServer(ctx);
-const h        = buildHandlers(ctx);
+let unified: UnifiedContext;
+let activePipeline: EventPipeline | import('../db/PgEventPipeline').PgEventPipeline;
 
-// Tüm WC2026 oyuncularını piyasaya kaydet
-registerPlayers(ctx, WORLD_CUP_PLAYERS.map(p => ({ player: p, basePrice: p.marketPrice })));
-
-// PostgreSQL'e arka planda bağlan (DATABASE_URL varsa)
 if (DB_URL) {
-  const pool = new PgPool(parseDatabaseUrl(DB_URL), 10);
+  // ── PostgreSQL modu ───────────────────────────────────────────────────────────
+  console.log('🐘  DATABASE_URL algılandı — PostgreSQL modunda başlatılıyor...');
+  const pool  = new PgPool(parseDatabaseUrl(DB_URL), 10);
+  const pgCtx = createPgContext(pool);
+
   migrate(pool)
-    .then(() => registerPgPlayers(
-      createPgContext(pool),
-      WORLD_CUP_PLAYERS.map(p => ({ player: p, basePrice: p.marketPrice })),
-    ))
-    .then(() => console.log('🐘  PostgreSQL hazır — kalıcı depolama aktif'))
-    .catch(err => console.warn('⚠️  PostgreSQL başlatma hatası (in-memory modda devam):', err.message));
+    .then(() => registerPgPlayers(pgCtx, WORLD_CUP_PLAYERS.map(p => ({ player: p, basePrice: p.marketPrice }))))
+    .then(() => console.log(`✓ PostgreSQL hazır — ${WORLD_CUP_PLAYERS.length} oyuncu yüklendi`))
+    .catch(err => { console.error('PostgreSQL başlatma hatası:', err.message); process.exit(1); });
+
+  unified        = pgToUnifiedContext(pgCtx, pgCtx.pipeline as any);
+  activePipeline = pgCtx.pipeline as any;
+} else {
+  // ── In-memory modu ────────────────────────────────────────────────────────────
+  const ctx = createGameContext();
+  registerPlayers(ctx, WORLD_CUP_PLAYERS.map(p => ({ player: p, basePrice: p.marketPrice })));
+  unified        = toUnifiedContext(ctx);
+  activePipeline = ctx.pipeline;
 }
 
-// ── Feed katmanı kurulumu ─────────────────────────────────────────────────────
+const router   = new HttpRouter();
+const wsServer = new WsServer(unified.pipeline as any);
+const h        = buildHandlers(unified);
 
-const registry = new PlayerRegistry();
+// ── Feed katmanı ──────────────────────────────────────────────────────────────
+
+const registry    = new PlayerRegistry();
 const srAdapter   = new SportradarAdapter(registry);
 const optaAdapter = new OptaAdapter(registry);
-const webhook     = new WebhookReceiver(ctx.pipeline);
+const webhook     = new WebhookReceiver(activePipeline as any);
 webhook.register(srAdapter);
 webhook.register(optaAdapter);
 
@@ -66,40 +80,29 @@ router.post('/match/start',            h.startMatch);
 router.post('/match/event',            h.pushMatchEvent);
 router.get ('/leaderboard',            h.leaderboard);
 
-// GET /ws/stats — bağlı istemci sayısı
 router.get('/ws/stats', ({ res }) => {
-  json(res, 200, {
-    connections: wsServer.getConnectionCount(),
-    timestamp:   new Date().toISOString(),
-  });
+  json(res, 200, { connections: wsServer.getConnectionCount(), timestamp: new Date().toISOString() });
 });
 
-// POST /feed/webhook/:provider?matchId=xxx — Sportradar/Opta webhook alıcısı
 router.post('/feed/webhook/:provider', async ({ req, res, params, query }) => {
   const provider = params.provider.toUpperCase() as ProviderId;
   const matchId  = query['matchId'] ?? query['match_id'] ?? 'unknown';
   await webhook.handle(req, res, provider, matchId);
 });
 
-// POST /feed/replay/:scenario — dev modunda maç simülasyonu başlat
 router.post('/feed/replay/:scenario', async ({ res, params }) => {
   const scenario = params.scenario as 'final' | 'random';
-  const replay   = new FeedReplay(ctx.pipeline);
+  const replay   = new FeedReplay(activePipeline as any);
   replay.loadScenario(scenario);
-  // Arkaplanda çalıştır, anında yanıt ver
   replay.start(50).catch(console.error);
-  json(res, 202, {
-    message:  `Replay başlatıldı: ${scenario}`,
-    note:     'Eventler WS üzerinden yayınlanacak',
-  });
+  json(res, 202, { message: `Replay başlatıldı: ${scenario}`, note: 'Eventler WS üzerinden yayınlanacak' });
 });
 
-// GET /feed/players — kayıtlı player mapping'leri
 router.get('/feed/players', ({ res }) => {
   json(res, 200, { players: registry.getAll() });
 });
 
-// ── HTTP + WebSocket Sunucusu (aynı port) ─────────────────────────────────────
+// ── HTTP + WebSocket Sunucusu ─────────────────────────────────────────────────
 
 const server = createServer((req, res) => {
   res.setHeader('Access-Control-Allow-Origin',  '*');
@@ -116,27 +119,18 @@ const server = createServer((req, res) => {
   });
 });
 
-// WebSocket'i HTTP sunucusuna bağla — aynı port paylaşılır
 wsServer.attach(server);
 
 server.listen(PORT, () => {
+  const mode = DB_URL ? '🐘 PostgreSQL' : '💾 In-Memory';
   console.log('\n⚽  World Cup 2026: Live Stock & Manager');
-  console.log(`🚀  REST API:  http://localhost:${PORT}`);
+  console.log(`🚀  REST API:  http://localhost:${PORT}  [${mode}]`);
   console.log(`🔌  WebSocket: ws://localhost:${PORT}`);
   console.log(`📊  ${WORLD_CUP_PLAYERS.length} oyuncu piyasaya yüklendi\n`);
-  console.log('REST Endpoint\'ler:');
-  console.log('  GET  /players              — Piyasadaki oyuncular');
-  console.log('  GET  /market               — Anlık fiyat tablosu');
-  console.log('  POST /users                — Kullanıcı oluştur');
-  console.log('  POST /transfer/buy|sell    — Transfer');
-  console.log('  POST /match/event          — Canlı maç eventi');
-  console.log('  GET  /leaderboard          — Sıralama\n');
-  console.log('WebSocket Kanalları:');
-  console.log('  market              — Tüm fiyat güncellemeleri');
-  console.log('  match:<matchId>     — Maç eventleri');
-  console.log('  wallet:<userId>     — Kişisel cüzdan bildirimleri\n');
-  console.log('Bağlantı örneği:');
-  console.log(`  ws://localhost:${PORT}  →  { type: "SUBSCRIBE", channel: "market" }\n`);
+  console.log('Endpoint\'ler: /players /market /users /wallet/:id /squad/:id');
+  console.log('Transfer:     POST /transfer/buy  |  /transfer/sell');
+  console.log('Maç:          POST /match/start   |  /match/event');
+  console.log('Sıralama:     GET  /leaderboard\n');
 });
 
-export { server, wsServer, ctx };
+export { server, wsServer, unified };

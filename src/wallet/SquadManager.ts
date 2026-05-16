@@ -84,6 +84,20 @@ export class SquadManager {
     return this.squads.get(userId)?.entries.length ?? 0;
   }
 
+  // Belirli bir oyuncuya sahip tüm kullanıcıları döner (EventPipeline için)
+  getOwners(playerId: PlayerId): UserId[] {
+    const owners: UserId[] = [];
+    for (const [userId, squad] of this.squads.entries()) {
+      if (squad.entries.some(e => e.player.id === playerId)) owners.push(userId);
+    }
+    return owners;
+  }
+
+  // Liderlik tablosu için tüm userId listesi
+  getAllUserIds(): UserId[] {
+    return [...this.squads.keys()];
+  }
+
   // ── Yardımcılar ──────────────────────────────────────────────────────────────
 
   private requireSquad(userId: UserId): SquadRecord {

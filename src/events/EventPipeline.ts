@@ -137,13 +137,7 @@ export class EventPipeline extends EventEmitter {
   // ── Yardımcılar ──────────────────────────────────────────────────────────────
 
   private findOwnersOf(playerId: string): UserId[] {
-    // SquadManager'dan tüm kullanıcı listesi çekilir; bu production'da bir
-    // "player → owners" index ile O(1)'e indirgenir.
-    return (this.squad as any)['squads']
-      ? [...((this.squad as any)['squads'] as Map<string, any>).entries()]
-          .filter(([, s]) => s.entries.some((e: any) => e.player.id === playerId))
-          .map(([userId]) => userId as UserId)
-      : [];
+    return this.squad.getOwners(playerId);
   }
 
   private updateMatchState(event: MatchEvent): void {

@@ -1,36 +1,39 @@
 import { randomUUID } from 'crypto';
 import { RouteContext, json } from './HttpRouter';
-import { GameContext, bootstrapUser } from '../context/GameContext';
+import { UnifiedContext } from '../context/UnifiedContext';
+import { bootstrapUser } from '../context/GameContext';
 import { WORLD_CUP_PLAYERS } from '../mock/MatchSimulator';
 import { MatchEvent } from '../events/types';
 import { Player } from '../wallet/types';
 
 // ── Handler Fabrikası ─────────────────────────────────────────────────────────
 //
-// Her handler factory, paylaşılan GameContext üzerinde çalışır.
-// Stateless'tır — state yalnızca GameContext içindedir.
+// Tüm handler'lar UnifiedContext üzerinde çalışır.
+// Her metot await ile çağrılır — in-memory ve PostgreSQL backend'leri için
+// aynı kod çalışır (UnifiedContext Promise döner her zaman).
 
-export function buildHandlers(ctx: GameContext) {
+export function buildHandlers(ctx: UnifiedContext) {
 
   // GET /health
   function health({ res }: RouteContext) {
     json(res, 200, {
       status:    'ok',
       game:      'World Cup 2026: Live Stock & Manager',
+      backend:   ctx.mode,
       timestamp: new Date().toISOString(),
     });
   }
 
   // GET /market
-  function marketAll({ res }: RouteContext) {
-    json(res, 200, { players: ctx.market.getAllSnapshots() });
+  async function marketAll({ res }: RouteContext) {
+    json(res, 200, { players: await ctx.market.getAllSnapshots() });
   }
 
   // GET /market/:playerId
-  function marketPlayer({ res, params }: RouteContext) {
+  async function marketPlayer({ res, params }: RouteContext) {
     try {
-      const snap    = ctx.market.getSnapshot(params.playerId);
-      const history = ctx.market.getPriceHistory(params.playerId).slice(-20);
+      const snap    = await ctx.market.getSnapshot(params.playerId);
+      const history = (await ctx.market.getPriceHistory(params.playerId)).slice(-20);
       json(res, 200, { ...snap, priceHistory: history });
     } catch (e: unknown) {
       json(res, 404, { error: (e as Error).message });
@@ -38,11 +41,12 @@ export function buildHandlers(ctx: GameContext) {
   }
 
   // POST /users  { userId, initialBalance }
-  function createUser({ res, body }: RouteContext) {
+  async function createUser({ res, body }: RouteContext) {
     const { userId, initialBalance = 5000 } = (body as any) ?? {};
     if (!userId) { json(res, 400, { error: 'userId zorunlu' }); return; }
     try {
-      bootstrapUser(ctx, userId, initialBalance);
+      await ctx.wallet.createWallet(userId, initialBalance);
+      await ctx.squad.createSquad(userId);
       json(res, 201, { userId, initialBalance, message: 'Kullanıcı oluşturuldu' });
     } catch (e: unknown) {
       json(res, 409, { error: (e as Error).message });
@@ -50,10 +54,10 @@ export function buildHandlers(ctx: GameContext) {
   }
 
   // GET /wallet/:userId
-  function getWallet({ res, params }: RouteContext) {
+  async function getWallet({ res, params }: RouteContext) {
     try {
-      const snap      = ctx.wallet.getWallet(params.userId);
-      const available = ctx.wallet.getAvailable(params.userId);
+      const snap      = await ctx.wallet.getWallet(params.userId);
+      const available = await ctx.wallet.getAvailable(params.userId);
       json(res, 200, { ...snap, available });
     } catch (e: unknown) {
       json(res, 404, { error: (e as Error).message });
@@ -61,9 +65,9 @@ export function buildHandlers(ctx: GameContext) {
   }
 
   // GET /wallet/:userId/history
-  function walletHistory({ res, params }: RouteContext) {
+  async function walletHistory({ res, params }: RouteContext) {
     try {
-      const history = ctx.wallet.getHistory(params.userId);
+      const history = await ctx.wallet.getHistory(params.userId);
       json(res, 200, { userId: params.userId, transactions: history });
     } catch (e: unknown) {
       json(res, 404, { error: (e as Error).message });
@@ -71,9 +75,9 @@ export function buildHandlers(ctx: GameContext) {
   }
 
   // GET /squad/:userId
-  function getSquad({ res, params }: RouteContext) {
+  async function getSquad({ res, params }: RouteContext) {
     try {
-      const snap = ctx.squad.getSquad(params.userId);
+      const snap = await ctx.squad.getSquad(params.userId);
       json(res, 200, snap);
     } catch (e: unknown) {
       json(res, 404, { error: (e as Error).message });
@@ -92,11 +96,11 @@ export function buildHandlers(ctx: GameContext) {
       const result = await ctx.exchange.buyPlayer(
         userId, player, slot, idempotencyKey ?? randomUUID(),
       );
-      ctx.market.recordBuy(playerId);
+      await ctx.market.recordBuy(playerId);
       json(res, 200, {
-        transaction:  result.transaction,
-        available:    result.available,
-        newPrice:     ctx.market.getPrice(playerId),
+        transaction: result.transaction,
+        available:   result.available,
+        newPrice:    await ctx.market.getPrice(playerId),
       });
     } catch (e: unknown) {
       json(res, 422, { error: (e as Error).message });
@@ -112,11 +116,11 @@ export function buildHandlers(ctx: GameContext) {
       const result = await ctx.exchange.sellPlayer(
         userId, playerId, idempotencyKey ?? randomUUID(),
       );
-      ctx.market.recordSell(playerId);
+      await ctx.market.recordSell(playerId);
       json(res, 200, {
         transaction: result.transaction,
         available:   result.available,
-        newPrice:    ctx.market.getPrice(playerId),
+        newPrice:    await ctx.market.getPrice(playerId),
       });
     } catch (e: unknown) {
       json(res, 422, { error: (e as Error).message });
@@ -132,11 +136,7 @@ export function buildHandlers(ctx: GameContext) {
 
     const event: MatchEvent = {
       eventId:   randomUUID(),
-      matchId,
-      playerId,
-      position,
-      type,
-      minute,
+      matchId, playerId, position, type, minute,
       timestamp: Date.now(),
     };
 
@@ -163,23 +163,8 @@ export function buildHandlers(ctx: GameContext) {
   }
 
   // GET /leaderboard
-  function leaderboard({ res }: RouteContext) {
-    // Tüm kullanıcıların cüzdanlarını WalletEngine'den çek
-    // (production'da ayrı bir leaderboard cache servisi tutar)
-    const walletEngine = ctx.wallet as any;
-    const entries: Array<{ userId: string; balance: number; available: number }> = [];
-
-    if (walletEngine['wallets']) {
-      for (const [userId, record] of walletEngine['wallets'].entries()) {
-        entries.push({
-          userId,
-          balance:   record.balance,
-          available: record.balance - record.reserved,
-        });
-      }
-    }
-
-    entries.sort((a, b) => b.available - a.available);
+  async function leaderboard({ res }: RouteContext) {
+    const entries = await ctx.wallet.getLeaderboard();
     json(res, 200, {
       leaderboard: entries.map((e, i) => ({ rank: i + 1, ...e })),
       updatedAt:   new Date().toISOString(),
@@ -187,13 +172,13 @@ export function buildHandlers(ctx: GameContext) {
   }
 
   // GET /players
-  function listPlayers({ res }: RouteContext) {
-    const players = WORLD_CUP_PLAYERS.map(p => ({
-      ...p,
-      currentPrice: (() => {
-        try { return ctx.market.getPrice(p.id); } catch { return p.marketPrice; }
-      })(),
-    }));
+  async function listPlayers({ res }: RouteContext) {
+    const players = await Promise.all(
+      WORLD_CUP_PLAYERS.map(async p => ({
+        ...p,
+        currentPrice: await ctx.market.getPrice(p.id).catch(() => p.marketPrice),
+      })),
+    );
     json(res, 200, { players });
   }
 

@@ -158,6 +158,15 @@ export class PgSquadManager {
 
   // ── Sorgular ──────────────────────────────────────────────────────────────────
 
+  // Bir oyuncuya sahip tüm kullanıcıları döner (EventPipeline fan-out için)
+  async getOwners(playerId: PlayerId): Promise<UserId[]> {
+    const r = await this.pool.query(
+      'SELECT user_id FROM squad_members WHERE player_id = $1',
+      [playerId],
+    );
+    return r.rows.map(row => row.user_id!);
+  }
+
   async hasPlayer(userId: UserId, playerId: PlayerId): Promise<boolean> {
     const r = await this.pool.query(
       'SELECT 1 FROM squad_members WHERE user_id = $1 AND player_id = $2',
