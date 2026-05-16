@@ -32,16 +32,17 @@
   #status-bar {
     display: flex;
     align-items: center;
-    gap: 12px;
-    padding: 10px 16px;
+    gap: 8px;
+    padding: 8px 12px;
     background: var(--surface);
     border-bottom: 1px solid var(--border);
     position: sticky;
     top: 0;
     z-index: 100;
+    flex-wrap: wrap;
   }
 
-  #status-bar h1 { font-size: 14px; font-weight: 600; white-space: nowrap; }
+  #status-bar h1 { font-size: 13px; font-weight: 600; white-space: nowrap; flex: 1; min-width: 0; }
 
   .dot {
     width: 8px; height: 8px;
@@ -55,10 +56,10 @@
   #ws-label { color: var(--muted); font-size: 11px; }
 
   #user-area {
-    margin-left: auto;
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 6px;
+    flex-wrap: wrap;
   }
 
   input[type=text] {
@@ -66,10 +67,11 @@
     border: 1px solid var(--border);
     border-radius: 6px;
     color: var(--text);
-    padding: 4px 8px;
-    font-size: 12px;
-    width: 140px;
+    padding: 5px 8px;
+    font-size: 13px;
+    width: 130px;
     outline: none;
+    -webkit-appearance: none;
   }
   input[type=text]:focus { border-color: var(--blue); }
 
@@ -79,14 +81,38 @@
     border-radius: 6px;
     color: #000;
     cursor: pointer;
-    font-size: 12px;
+    font-size: 13px;
     font-weight: 600;
-    padding: 4px 10px;
+    padding: 6px 12px;
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
   }
-  button:hover { opacity: .85; }
-  button.danger { background: var(--red); color: #fff; }
+  button:active { opacity: .75; }
+  button.danger  { background: var(--red);   color: #fff; }
   button.success { background: var(--green); color: #000; }
   button.secondary { background: var(--surface); color: var(--text); border: 1px solid var(--border); }
+
+  /* ── Tabs (mobile nav) ──────────────────────────────── */
+  #tab-bar {
+    display: none;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    white-space: nowrap;
+    padding: 0 4px;
+  }
+
+  .tab {
+    display: inline-block;
+    padding: 10px 14px;
+    font-size: 12px;
+    color: var(--muted);
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    user-select: none;
+  }
+  .tab.active { color: var(--blue); border-bottom-color: var(--blue); }
 
   /* ── Layout ─────────────────────────────────────────── */
   #grid {
@@ -115,6 +141,48 @@
     align-items: center;
     gap: 6px;
     flex-shrink: 0;
+  }
+
+  /* ── Mobile layout ──────────────────────────────────── */
+  @media (max-width: 700px) {
+    body { font-size: 14px; }
+
+    #tab-bar { display: block; }
+
+    #grid {
+      display: block;
+      height: auto;
+      background: var(--bg);
+      gap: 0;
+    }
+
+    .panel {
+      display: none;
+      height: calc(100vh - 92px);   /* statusbar + tabbar */
+    }
+    .panel.active { display: flex; }
+
+    #market-panel  { grid-column: unset; grid-row: unset; }
+    #match-panel   { grid-column: unset; grid-row: unset; }
+    #leaderboard-panel { grid-column: unset; grid-row: unset; }
+    #wallet-panel  { grid-column: unset; grid-row: unset; }
+    #trade-panel   { grid-column: unset; grid-row: unset; }
+
+    td, th { padding: 7px 8px; }
+
+    .trade-actions button { padding: 12px; font-size: 15px; }
+
+    select, input[type=text] { font-size: 15px; padding: 8px; }
+
+    .lb-row { padding: 9px 12px; }
+
+    .event-row { padding: 7px 12px; }
+
+    #match-score { font-size: 36px; }
+    #match-teams { font-size: 14px; }
+
+    #wallet-info { grid-template-columns: 1fr 1fr; }
+    .wallet-stat .value { font-size: 24px; }
   }
 
   .panel-body {
@@ -363,11 +431,20 @@
   </div>
 </div>
 
+<!-- ── Tab bar (mobile only) ──────────────────────────── -->
+<div id="tab-bar">
+  <span class="tab active" onclick="showTab('market-panel',  this)">📊 Market</span>
+  <span class="tab"        onclick="showTab('match-panel',   this)">⚽ Maç</span>
+  <span class="tab"        onclick="showTab('leaderboard-panel', this)">🏆 Sıralama</span>
+  <span class="tab"        onclick="showTab('wallet-panel',  this)">💰 Cüzdan</span>
+  <span class="tab"        onclick="showTab('trade-panel',   this)">🔄 Al/Sat</span>
+</div>
+
 <!-- ── Main Grid ───────────────────────────────────────── -->
 <div id="grid">
 
   <!-- Market -->
-  <div class="panel" id="market-panel">
+  <div class="panel active" id="market-panel">
     <div class="panel-header">📊 Market <span class="tag" id="market-ts"></span></div>
     <div class="panel-body">
       <table>
@@ -641,6 +718,9 @@ function onMatchStatus(msg) {
   if (msg.status === 'KICK_OFF') {
     send({ type: 'SUBSCRIBE', channel: `match:${msg.matchId}` });
     document.getElementById('event-feed').innerHTML = '';
+    // Mobilde maç tab'ına geç
+    const matchTab = document.querySelector('#tab-bar .tab:nth-child(2)');
+    if (matchTab) showTab('match-panel', matchTab);
   }
 
   document.getElementById('match-teams').textContent =
@@ -865,6 +945,14 @@ function showTradeResult(msg, ok) {
   el.className = ok ? 'ok' : 'err';
   el.style.display = 'block';
   setTimeout(() => { el.style.display = 'none'; }, 4000);
+}
+
+// ── Tab navigation (mobile) ────────────────────────────────────────────────────
+function showTab(panelId, tabEl) {
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.getElementById(panelId).classList.add('active');
+  if (tabEl) tabEl.classList.add('active');
 }
 
 // ── Utils ──────────────────────────────────────────────────────────────────────
