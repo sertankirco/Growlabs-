@@ -1,6 +1,8 @@
-import { createServer } from 'http';
-import { HttpRouter }    from './HttpRouter';
-import { buildHandlers } from './handlers';
+import { createServer }   from 'http';
+import { readFileSync }    from 'fs';
+import { join }            from 'path';
+import { HttpRouter }      from './HttpRouter';
+import { buildHandlers }   from './handlers';
 import { createGameContext, registerPlayers, createPgContext, registerPgPlayers } from '../context/GameContext';
 import { toUnifiedContext, pgToUnifiedContext, UnifiedContext } from '../context/UnifiedContext';
 import { WsServer }              from '../ws/WsServer';
@@ -14,6 +16,9 @@ import { json }                  from './HttpRouter';
 import { PgPool, parseDatabaseUrl } from '../db/PgPool';
 import { migrate }               from '../db/migrate';
 import { LiveMatchOrchestrator } from '../match/LiveMatchOrchestrator';
+
+// Startup'ta bir kez oku — route istekte tekrar okumaz
+const UI_HTML = readFileSync(join(__dirname, '../../public/index.html'), 'utf8');
 
 const PORT   = Number(process.env.PORT ?? 3000);
 const DB_URL = process.env.DATABASE_URL;
@@ -64,7 +69,10 @@ webhook.register(optaAdapter);
 
 // ── Route Tanımları ───────────────────────────────────────────────────────────
 
-router.get ('/',                       h.health);
+router.get ('/',        ({ res }) => {
+  res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+  res.end(UI_HTML);
+});
 router.get ('/health',                 h.health);
 router.get ('/players',                h.listPlayers);
 router.get ('/market',                 h.marketAll);

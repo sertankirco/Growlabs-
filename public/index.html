@@ -1,0 +1,891 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>⚽ World Cup 2026 Exchange</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg:      #0d1117;
+    --surface: #161b22;
+    --border:  #30363d;
+    --text:    #e6edf3;
+    --muted:   #8b949e;
+    --green:   #3fb950;
+    --red:     #f85149;
+    --yellow:  #d29922;
+    --blue:    #58a6ff;
+    --purple:  #bc8cff;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Segoe UI', system-ui, monospace;
+    font-size: 13px;
+    min-height: 100vh;
+  }
+
+  /* ── Status bar ─────────────────────────────────────── */
+  #status-bar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 16px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    position: sticky;
+    top: 0;
+    z-index: 100;
+  }
+
+  #status-bar h1 { font-size: 14px; font-weight: 600; white-space: nowrap; }
+
+  .dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--red);
+    flex-shrink: 0;
+    transition: background .3s;
+  }
+  .dot.connected { background: var(--green); box-shadow: 0 0 6px var(--green); }
+
+  #ws-label { color: var(--muted); font-size: 11px; }
+
+  #user-area {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  input[type=text] {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text);
+    padding: 4px 8px;
+    font-size: 12px;
+    width: 140px;
+    outline: none;
+  }
+  input[type=text]:focus { border-color: var(--blue); }
+
+  button {
+    background: var(--blue);
+    border: none;
+    border-radius: 6px;
+    color: #000;
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 600;
+    padding: 4px 10px;
+  }
+  button:hover { opacity: .85; }
+  button.danger { background: var(--red); color: #fff; }
+  button.success { background: var(--green); color: #000; }
+  button.secondary { background: var(--surface); color: var(--text); border: 1px solid var(--border); }
+
+  /* ── Layout ─────────────────────────────────────────── */
+  #grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    grid-template-rows: auto auto;
+    gap: 1px;
+    background: var(--border);
+    height: calc(100vh - 45px);
+  }
+
+  .panel {
+    background: var(--bg);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .panel-header {
+    padding: 8px 12px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    font-weight: 600;
+    font-size: 12px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
+  }
+
+  .panel-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 0;
+  }
+
+  /* ── Market table ───────────────────────────────────── */
+  #market-panel { grid-column: 1; grid-row: 1 / 3; }
+
+  table { width: 100%; border-collapse: collapse; }
+
+  th {
+    padding: 6px 10px;
+    text-align: left;
+    color: var(--muted);
+    font-weight: 500;
+    font-size: 11px;
+    position: sticky;
+    top: 0;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+  }
+
+  td {
+    padding: 6px 10px;
+    border-bottom: 1px solid var(--border);
+    font-size: 12px;
+  }
+
+  tr:last-child td { border-bottom: none; }
+
+  tr.flash-up   { animation: flashUp .6s ease; }
+  tr.flash-down { animation: flashDown .6s ease; }
+
+  @keyframes flashUp   { 0%,100%{background:transparent} 30%{background:rgba(63,185,80,.25)} }
+  @keyframes flashDown { 0%,100%{background:transparent} 30%{background:rgba(248,81,73,.25)} }
+
+  .up   { color: var(--green); }
+  .down { color: var(--red); }
+  .stable { color: var(--muted); }
+
+  .pos-badge {
+    display: inline-block;
+    font-size: 9px;
+    padding: 1px 4px;
+    border-radius: 3px;
+    font-weight: 700;
+    color: #000;
+  }
+  .pos-GK  { background: #f0b429; }
+  .pos-DEF { background: #58a6ff; }
+  .pos-MID { background: #3fb950; }
+  .pos-FWD { background: #f85149; color: #fff; }
+
+  /* ── Match panel ────────────────────────────────────── */
+  #match-panel { grid-column: 2; grid-row: 1; }
+
+  #match-header {
+    text-align: center;
+    padding: 12px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+  }
+
+  #match-teams {
+    font-size: 16px;
+    font-weight: 700;
+    letter-spacing: .5px;
+  }
+
+  #match-score {
+    font-size: 28px;
+    font-weight: 800;
+    color: var(--blue);
+    margin: 4px 0;
+  }
+
+  #match-minute {
+    font-size: 11px;
+    color: var(--muted);
+  }
+
+  #match-status-badge {
+    display: inline-block;
+    font-size: 10px;
+    padding: 2px 6px;
+    border-radius: 10px;
+    font-weight: 700;
+    margin-left: 6px;
+  }
+  .badge-live     { background: var(--red); color: #fff; }
+  .badge-halftime { background: var(--yellow); color: #000; }
+  .badge-finished { background: var(--muted); color: #000; }
+  .badge-upcoming { background: var(--purple); color: #000; }
+
+  #event-feed { padding: 4px 0; }
+
+  .event-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 5px 12px;
+    border-bottom: 1px solid var(--border);
+    animation: slideIn .3s ease;
+  }
+
+  @keyframes slideIn { from { opacity:0; transform:translateY(-6px); } to { opacity:1; transform:none; } }
+
+  .event-minute { color: var(--blue); font-size: 11px; width: 28px; flex-shrink: 0; }
+  .event-icon   { font-size: 14px; width: 18px; flex-shrink: 0; }
+  .event-player { font-weight: 600; }
+  .event-reward { margin-left: auto; font-size: 11px; }
+  .reward-pos   { color: var(--green); }
+  .reward-neg   { color: var(--red); }
+
+  /* ── Countdown ──────────────────────────────────────── */
+  #countdown-bar {
+    display: none;
+    padding: 8px 12px;
+    background: rgba(188,140,255,.12);
+    border-bottom: 1px solid var(--purple);
+    text-align: center;
+    font-size: 12px;
+    color: var(--purple);
+  }
+
+  /* ── Leaderboard ────────────────────────────────────── */
+  #leaderboard-panel { grid-column: 3; grid-row: 1; }
+
+  .lb-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 12px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .lb-rank {
+    font-size: 11px;
+    color: var(--muted);
+    width: 18px;
+    text-align: right;
+    flex-shrink: 0;
+  }
+  .lb-rank.gold   { color: #ffd700; font-weight: 700; }
+  .lb-rank.silver { color: #c0c0c0; font-weight: 700; }
+  .lb-rank.bronze { color: #cd7f32; font-weight: 700; }
+
+  .lb-user { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .lb-user.me { color: var(--blue); font-weight: 600; }
+
+  .lb-coins { color: var(--green); font-size: 12px; white-space: nowrap; }
+
+  /* ── Wallet panel ───────────────────────────────────── */
+  #wallet-panel { grid-column: 2; grid-row: 2; }
+
+  #wallet-info {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1px;
+    background: var(--border);
+  }
+
+  .wallet-stat {
+    background: var(--bg);
+    padding: 10px 14px;
+  }
+
+  .wallet-stat .label { color: var(--muted); font-size: 11px; }
+  .wallet-stat .value { font-size: 20px; font-weight: 700; color: var(--green); margin-top: 2px; }
+
+  #tx-list { padding: 4px 0; }
+
+  .tx-row {
+    display: flex;
+    gap: 8px;
+    padding: 5px 12px;
+    border-bottom: 1px solid var(--border);
+    font-size: 11px;
+    color: var(--muted);
+  }
+  .tx-row .tx-type { color: var(--text); font-weight: 600; width: 80px; }
+  .tx-row .tx-amt  { margin-left: auto; }
+  .tx-row .tx-amt.pos { color: var(--green); }
+  .tx-row .tx-amt.neg { color: var(--red); }
+
+  /* ── Buy/Sell panel ─────────────────────────────────── */
+  #trade-panel { grid-column: 3; grid-row: 2; }
+
+  .trade-form {
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .trade-form label { color: var(--muted); font-size: 11px; display: block; margin-bottom: 3px; }
+
+  select {
+    width: 100%;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text);
+    padding: 5px 8px;
+    font-size: 12px;
+    outline: none;
+  }
+  select:focus { border-color: var(--blue); }
+
+  .trade-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .trade-actions button { padding: 8px; font-size: 13px; }
+
+  #trade-result {
+    padding: 8px 12px;
+    border-radius: 6px;
+    font-size: 12px;
+    margin-top: 4px;
+    display: none;
+  }
+  #trade-result.ok  { background: rgba(63,185,80,.15);  color: var(--green); }
+  #trade-result.err { background: rgba(248,81,73,.15);  color: var(--red); }
+
+  /* ── Scrollbar ──────────────────────────────────────── */
+  ::-webkit-scrollbar { width: 4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+  .tag { font-size: 10px; color: var(--muted); }
+</style>
+</head>
+<body>
+
+<!-- ── Status Bar ──────────────────────────────────────── -->
+<div id="status-bar">
+  <div class="dot" id="ws-dot"></div>
+  <h1>⚽ World Cup 2026 Exchange</h1>
+  <span id="ws-label">bağlanıyor...</span>
+
+  <div id="user-area">
+    <input type="text" id="user-input" placeholder="userId (örn: sertan)" maxlength="32">
+    <button onclick="loginOrCreate()">Giriş / Kayıt</button>
+    <span id="user-badge" style="color:var(--blue);font-weight:600;display:none"></span>
+  </div>
+</div>
+
+<!-- ── Main Grid ───────────────────────────────────────── -->
+<div id="grid">
+
+  <!-- Market -->
+  <div class="panel" id="market-panel">
+    <div class="panel-header">📊 Market <span class="tag" id="market-ts"></span></div>
+    <div class="panel-body">
+      <table>
+        <thead>
+          <tr>
+            <th>Oyuncu</th>
+            <th>Pos</th>
+            <th style="text-align:right">Fiyat</th>
+            <th style="text-align:right">Değişim</th>
+          </tr>
+        </thead>
+        <tbody id="market-body"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Match -->
+  <div class="panel" id="match-panel">
+    <div id="countdown-bar" id="countdown-bar">
+      ⏳ Sonraki maç: <strong id="countdown-val">--</strong> saniye
+      <span id="countdown-teams" style="margin-left:8px"></span>
+    </div>
+    <div id="match-header">
+      <div id="match-teams" style="color:var(--muted)">Maç bekleniyor...</div>
+      <div id="match-score">— : —</div>
+      <div id="match-minute">
+        <span id="match-min-val">0'</span>
+        <span id="match-status-badge" class="badge-upcoming">BEKLE</span>
+      </div>
+    </div>
+    <div class="panel-body">
+      <div id="event-feed"></div>
+    </div>
+  </div>
+
+  <!-- Leaderboard -->
+  <div class="panel" id="leaderboard-panel">
+    <div class="panel-header">🏆 Leaderboard <span class="tag" id="lb-ts"></span></div>
+    <div class="panel-body">
+      <div id="lb-body"></div>
+    </div>
+  </div>
+
+  <!-- Wallet -->
+  <div class="panel" id="wallet-panel">
+    <div class="panel-header">💰 Cüzdan
+      <span id="wallet-user-label" class="tag"></span>
+    </div>
+    <div id="wallet-info">
+      <div class="wallet-stat">
+        <div class="label">Bakiye</div>
+        <div class="value" id="wallet-balance">—</div>
+      </div>
+      <div class="wallet-stat">
+        <div class="label">Kullanılabilir</div>
+        <div class="value" id="wallet-available">—</div>
+      </div>
+    </div>
+    <div class="panel-body">
+      <div id="tx-list"></div>
+    </div>
+  </div>
+
+  <!-- Trade -->
+  <div class="panel" id="trade-panel">
+    <div class="panel-header">🔄 Al / Sat</div>
+    <div class="panel-body">
+      <div class="trade-form">
+        <div>
+          <label>Oyuncu</label>
+          <select id="player-select"></select>
+        </div>
+        <div>
+          <label>Güncel Fiyat</label>
+          <div id="selected-price" style="font-size:18px;font-weight:700;color:var(--blue)">—</div>
+        </div>
+        <div>
+          <label>Kadro Pozisyonu</label>
+          <select id="slot-select">
+            <option value="starting">İlk 11</option>
+            <option value="bench">Yedek</option>
+          </select>
+        </div>
+        <div class="trade-actions">
+          <button class="success" onclick="doBuy()">⬆ AL</button>
+          <button class="danger"  onclick="doSell()">⬇ SAT</button>
+        </div>
+        <div id="trade-result"></div>
+        <div style="margin-top:8px">
+          <label>Kadro</label>
+          <div id="squad-list" style="color:var(--muted);font-size:11px">—</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div><!-- /grid -->
+
+<script>
+// ── State ──────────────────────────────────────────────────────────────────────
+const API  = '';          // same origin
+const WS   = `ws://${location.host}`;
+let ws;
+let userId = localStorage.getItem('wc2026_userId') || '';
+let currentMatchId = null;
+let countdownTimer = null;
+let players = {};          // id → { name, position, price, change }
+let mySquad  = [];
+
+// ── WebSocket ──────────────────────────────────────────────────────────────────
+function connect() {
+  ws = new WebSocket(WS);
+
+  ws.onopen = () => {
+    setStatus(true);
+    ws.send(JSON.stringify({ type: 'SUBSCRIBE', channel: 'market' }));
+    ws.send(JSON.stringify({ type: 'SUBSCRIBE', channel: 'leaderboard' }));
+    if (userId) subscribeWallet();
+  };
+
+  ws.onclose = () => {
+    setStatus(false);
+    setTimeout(connect, 3000);
+  };
+
+  ws.onmessage = (e) => {
+    const msg = JSON.parse(e.data);
+    switch (msg.type) {
+      case 'CONNECTED':        return;
+      case 'SUBSCRIBED':       return;
+      case 'MARKET_UPDATE':    return onMarketUpdate(msg);
+      case 'MATCH_UPCOMING':   return onMatchUpcoming(msg);
+      case 'MATCH_STATUS':     return onMatchStatus(msg);
+      case 'MATCH_EVENT':      return onMatchEvent(msg);
+      case 'WALLET_UPDATE':    return onWalletUpdate(msg);
+      case 'LEADERBOARD_UPDATE': return onLeaderboard(msg);
+    }
+  };
+}
+
+function setStatus(ok) {
+  document.getElementById('ws-dot').classList.toggle('connected', ok);
+  document.getElementById('ws-label').textContent = ok ? 'bağlı' : 'bağlantı yok';
+}
+
+function send(obj) {
+  if (ws && ws.readyState === 1) ws.send(JSON.stringify(obj));
+}
+
+// ── Init data ──────────────────────────────────────────────────────────────────
+async function loadMarket() {
+  const data = await fetch(`${API}/market`).then(r => r.json());
+  for (const p of data.players) {
+    players[p.playerId] = { ...p, price: p.currentPrice, change: 0 };
+    updateMarketRow(p.playerId);
+  }
+}
+
+async function loadLeaderboard() {
+  const data = await fetch(`${API}/leaderboard`).then(r => r.json());
+  renderLeaderboard(data.leaderboard);
+}
+
+async function loadPlayers() {
+  const data = await fetch(`${API}/players`).then(r => r.json());
+  const sel = document.getElementById('player-select');
+  sel.innerHTML = '';
+  for (const p of data.players) {
+    players[p.id] = players[p.id] || {};
+    players[p.id].name     = p.name;
+    players[p.id].position = p.position;
+    players[p.id].price    = p.currentPrice;
+    const opt = document.createElement('option');
+    opt.value = p.id;
+    opt.textContent = `${p.name} (${p.position}) — ${p.currentPrice}₡`;
+    sel.appendChild(opt);
+  }
+  sel.onchange = () => {
+    const pid = sel.value;
+    const pr  = players[pid]?.price ?? '—';
+    document.getElementById('selected-price').textContent = pr + '₡';
+  };
+  sel.dispatchEvent(new Event('change'));
+}
+
+// ── Market ─────────────────────────────────────────────────────────────────────
+function onMarketUpdate(msg) {
+  const prev = players[msg.playerId];
+  players[msg.playerId] = {
+    ...(prev || {}),
+    name:   msg.name,
+    price:  msg.newPrice,
+    change: msg.changePct,
+  };
+  updateMarketRow(msg.playerId, msg.trend);
+  document.getElementById('market-ts').textContent = fmt(msg.timestamp);
+
+  // Update player select option price
+  const sel = document.getElementById('player-select');
+  for (const opt of sel.options) {
+    if (opt.value === msg.playerId) {
+      const pos = players[msg.playerId]?.position || '';
+      opt.textContent = `${msg.name} (${pos}) — ${msg.newPrice}₡`;
+      break;
+    }
+  }
+  if (sel.value === msg.playerId) {
+    document.getElementById('selected-price').textContent = msg.newPrice + '₡';
+  }
+}
+
+function updateMarketRow(playerId, trend) {
+  const p = players[playerId];
+  if (!p) return;
+
+  const tbody = document.getElementById('market-body');
+  let row = document.getElementById(`mr-${playerId}`);
+  if (!row) {
+    row = document.createElement('tr');
+    row.id = `mr-${playerId}`;
+    tbody.appendChild(row);
+  }
+
+  const chg   = p.change ?? 0;
+  const arrow = chg > 0.5 ? '▲' : chg < -0.5 ? '▼' : '—';
+  const cls   = chg > 0.5 ? 'up' : chg < -0.5 ? 'down' : 'stable';
+
+  row.innerHTML = `
+    <td style="font-weight:600">${p.name || playerId}</td>
+    <td><span class="pos-badge pos-${p.position || ''}">${p.position || ''}</span></td>
+    <td style="text-align:right;font-weight:700">${p.price ?? '—'}₡</td>
+    <td style="text-align:right" class="${cls}">${arrow} ${Math.abs(chg).toFixed(1)}%</td>
+  `;
+
+  if (trend === 'UP') {
+    row.className = 'flash-up';
+    setTimeout(() => { if (row) row.className = ''; }, 700);
+  } else if (trend === 'DOWN') {
+    row.className = 'flash-down';
+    setTimeout(() => { if (row) row.className = ''; }, 700);
+  }
+}
+
+// ── Match upcoming countdown ───────────────────────────────────────────────────
+function onMatchUpcoming(msg) {
+  clearCountdown();
+  document.getElementById('countdown-bar').style.display = 'block';
+  document.getElementById('countdown-teams').textContent =
+    `${msg.homeTeam} vs ${msg.awayTeam}`;
+
+  let remaining = Math.ceil(msg.startsInMs / 1000);
+  document.getElementById('countdown-val').textContent = remaining;
+
+  countdownTimer = setInterval(() => {
+    remaining--;
+    document.getElementById('countdown-val').textContent = remaining;
+    if (remaining <= 0) clearCountdown();
+  }, 1000);
+}
+
+function clearCountdown() {
+  if (countdownTimer) { clearInterval(countdownTimer); countdownTimer = null; }
+  document.getElementById('countdown-bar').style.display = 'none';
+}
+
+// ── Match status ───────────────────────────────────────────────────────────────
+function onMatchStatus(msg) {
+  clearCountdown();
+  currentMatchId = msg.matchId;
+
+  if (msg.status === 'KICK_OFF') {
+    send({ type: 'SUBSCRIBE', channel: `match:${msg.matchId}` });
+    document.getElementById('event-feed').innerHTML = '';
+  }
+
+  document.getElementById('match-teams').textContent =
+    msg.homeTeam ? `${msg.homeTeam} vs ${msg.awayTeam}` : 'Maç bekleniyor...';
+  document.getElementById('match-score').textContent =
+    msg.homeTeam ? `${msg.homeScore} : ${msg.awayScore}` : '— : —';
+  document.getElementById('match-min-val').textContent = msg.minute + "'";
+
+  const badge = document.getElementById('match-status-badge');
+  const labels = {
+    KICK_OFF: ['CANLI', 'badge-live'],
+    HALF_TIME: ['DEVRE ARASI', 'badge-halftime'],
+    FULL_TIME: ['BİTTİ', 'badge-finished'],
+    ABORTED: ['İPTAL', 'badge-finished'],
+  };
+  const [label, cls] = labels[msg.status] || ['BEKLE', 'badge-upcoming'];
+  badge.textContent = label;
+  badge.className = `match-status-badge ${cls}`;
+
+  if (msg.status === 'FULL_TIME') loadWallet();
+}
+
+// ── Match events ───────────────────────────────────────────────────────────────
+const EVENT_ICONS = {
+  GOAL: '⚽', ASSIST: '🅰️', YELLOW_CARD: '🟨', RED_CARD: '🟥',
+  CLEAN_SHEET: '🧤', SAVE_SERIES: '🧤', PENALTY_SAVE: '🧤',
+  PENALTY_MISS: '❌', OWN_GOAL: '😬', MAN_OF_MATCH: '⭐',
+};
+
+function onMatchEvent(msg) {
+  const feed = document.getElementById('event-feed');
+  const row  = document.createElement('div');
+  row.className = 'event-row';
+
+  const coins  = msg.reward?.coins ?? 0;
+  const sign   = coins > 0 ? '+' : '';
+  const rwCls  = coins > 0 ? 'reward-pos' : coins < 0 ? 'reward-neg' : '';
+  const icon   = EVENT_ICONS[msg.event.type] || '•';
+  const pName  = players[msg.event.playerId]?.name || msg.event.playerId;
+
+  row.innerHTML = `
+    <span class="event-minute">${msg.event.minute}'</span>
+    <span class="event-icon">${icon}</span>
+    <span class="event-player">${pName}</span>
+    <span class="event-reward ${rwCls}">${coins !== 0 ? sign + coins + '₡' : ''}</span>
+  `;
+
+  feed.insertBefore(row, feed.firstChild);
+
+  // Keep max 40 events
+  while (feed.children.length > 40) feed.removeChild(feed.lastChild);
+
+  // Update score display if GOAL
+  if (msg.event.type === 'GOAL') {
+    document.getElementById('match-min-val').textContent = msg.event.minute + "'";
+  }
+}
+
+// ── Leaderboard ────────────────────────────────────────────────────────────────
+function onLeaderboard(msg) {
+  renderLeaderboard(msg.top10);
+  document.getElementById('lb-ts').textContent = fmt(msg.timestamp);
+}
+
+function renderLeaderboard(entries) {
+  const body = document.getElementById('lb-body');
+  body.innerHTML = '';
+  const rankCls = ['gold', 'silver', 'bronze'];
+  for (const e of entries) {
+    const row = document.createElement('div');
+    row.className = 'lb-row';
+    const isMe = e.userId === userId;
+    row.innerHTML = `
+      <span class="lb-rank ${rankCls[e.rank - 1] || ''}">${e.rank}</span>
+      <span class="lb-user ${isMe ? 'me' : ''}">${e.userId}${isMe ? ' (sen)' : ''}</span>
+      <span class="lb-coins">${e.available.toLocaleString()}₡</span>
+    `;
+    body.appendChild(row);
+  }
+}
+
+// ── Wallet ─────────────────────────────────────────────────────────────────────
+function subscribeWallet() {
+  send({ type: 'SUBSCRIBE', channel: `wallet:${userId}`, userId });
+}
+
+function onWalletUpdate(msg) {
+  if (msg.userId !== userId) return;
+  document.getElementById('wallet-balance').textContent   = msg.balance.toLocaleString() + '₡';
+  document.getElementById('wallet-available').textContent = msg.available.toLocaleString() + '₡';
+
+  const list = document.getElementById('tx-list');
+  const row  = document.createElement('div');
+  row.className = 'tx-row';
+  const sign = msg.delta > 0 ? '+' : '';
+  row.innerHTML = `
+    <span class="tx-type">${msg.reason}</span>
+    <span class="tx-amt ${msg.delta > 0 ? 'pos' : 'neg'}">${sign}${msg.delta}₡</span>
+  `;
+  list.insertBefore(row, list.firstChild);
+  while (list.children.length > 20) list.removeChild(list.lastChild);
+}
+
+async function loadWallet() {
+  if (!userId) return;
+  try {
+    const data = await fetch(`${API}/wallet/${userId}`).then(r => r.json());
+    if (data.error) return;
+    document.getElementById('wallet-balance').textContent   = data.balance.toLocaleString() + '₡';
+    document.getElementById('wallet-available').textContent = data.available.toLocaleString() + '₡';
+    document.getElementById('wallet-user-label').textContent = `(${userId})`;
+  } catch {}
+
+  try {
+    const data = await fetch(`${API}/wallet/${userId}/history`).then(r => r.json());
+    const list = document.getElementById('tx-list');
+    list.innerHTML = '';
+    for (const tx of (data.transactions || []).slice(0, 20)) {
+      const row = document.createElement('div');
+      row.className = 'tx-row';
+      const sign = tx.amount > 0 ? '+' : '';
+      row.innerHTML = `
+        <span class="tx-type">${tx.type}</span>
+        <span style="color:var(--muted);flex:1;overflow:hidden;text-overflow:ellipsis">${tx.idempotencyKey || ''}</span>
+        <span class="tx-amt ${tx.amount > 0 ? 'pos' : 'neg'}">${sign}${tx.amount}₡</span>
+      `;
+      list.appendChild(row);
+    }
+  } catch {}
+  loadSquad();
+}
+
+async function loadSquad() {
+  if (!userId) return;
+  try {
+    const data = await fetch(`${API}/squad/${userId}`).then(r => r.json());
+    mySquad = (data.starting || []).map(e => e.playerId)
+            .concat((data.bench || []).map(e => e.playerId));
+    const label = document.getElementById('squad-list');
+    if (mySquad.length === 0) {
+      label.textContent = 'Kadronuz boş';
+      return;
+    }
+    label.innerHTML = mySquad.map(pid => {
+      const p = players[pid];
+      return `<span style="margin-right:6px;color:var(--text)">${p?.name || pid}</span>`;
+    }).join('');
+  } catch {}
+}
+
+// ── Auth / create user ─────────────────────────────────────────────────────────
+async function loginOrCreate() {
+  const input = document.getElementById('user-input').value.trim();
+  if (!input) return;
+
+  // Try to get wallet first (login)
+  let res = await fetch(`${API}/wallet/${input}`);
+  if (res.status === 404) {
+    // Create user
+    res = await fetch(`${API}/users`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId: input, initialBalance: 5000 }),
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      alert(err.error || 'Kullanıcı oluşturulamadı');
+      return;
+    }
+  }
+
+  userId = input;
+  localStorage.setItem('wc2026_userId', userId);
+  document.getElementById('user-input').value = '';
+  document.getElementById('user-badge').textContent = userId;
+  document.getElementById('user-badge').style.display = 'inline';
+  subscribeWallet();
+  loadWallet();
+}
+
+// ── Trade ──────────────────────────────────────────────────────────────────────
+async function doBuy() {
+  if (!userId) { showTradeResult('Önce kullanıcı oluştur', false); return; }
+  const playerId = document.getElementById('player-select').value;
+  const slot     = document.getElementById('slot-select').value;
+
+  const res = await fetch(`${API}/transfer/buy`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ userId, playerId, slot }),
+  });
+  const data = await res.json();
+  if (res.ok) {
+    showTradeResult(`✓ Alındı — ${data.available}₡ kaldı`, true);
+    loadWallet();
+  } else {
+    showTradeResult(data.error || 'Hata', false);
+  }
+}
+
+async function doSell() {
+  if (!userId) { showTradeResult('Önce kullanıcı oluştur', false); return; }
+  const playerId = document.getElementById('player-select').value;
+
+  const res = await fetch(`${API}/transfer/sell`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ userId, playerId }),
+  });
+  const data = await res.json();
+  if (res.ok) {
+    showTradeResult(`✓ Satıldı — ${data.available}₡`, true);
+    loadWallet();
+  } else {
+    showTradeResult(data.error || 'Hata', false);
+  }
+}
+
+function showTradeResult(msg, ok) {
+  const el = document.getElementById('trade-result');
+  el.textContent = msg;
+  el.className = ok ? 'ok' : 'err';
+  el.style.display = 'block';
+  setTimeout(() => { el.style.display = 'none'; }, 4000);
+}
+
+// ── Utils ──────────────────────────────────────────────────────────────────────
+function fmt(ts) {
+  return new Date(ts).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+}
+
+// ── Boot ───────────────────────────────────────────────────────────────────────
+(async () => {
+  // Restore userId
+  if (userId) {
+    document.getElementById('user-badge').textContent = userId;
+    document.getElementById('user-badge').style.display = 'inline';
+  }
+
+  connect();
+  await loadPlayers();
+  await loadMarket();
+  await loadLeaderboard();
+  if (userId) await loadWallet();
+})();
+</script>
+</body>
+</html>
