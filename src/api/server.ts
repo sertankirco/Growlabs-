@@ -15,6 +15,9 @@ import { WebhookReceiver }       from '../feed/WebhookReceiver';
 import { LiveFeedClient }        from '../feed/LiveFeedClient';
 import { MatchScheduleManager }  from '../feed/MatchScheduleManager';
 import { ProviderId }            from '../feed/types';
+import { TournamentEngine }      from '../tournament/TournamentEngine';
+import { WC2026_TEAMS, getMatchPlayerPool } from '../tournament/WC2026Groups';
+import { GroupId }               from '../tournament/types';
 import { json }                  from './HttpRouter';
 import { PgPool, parseDatabaseUrl } from '../db/PgPool';
 import { migrate }               from '../db/migrate';
@@ -83,6 +86,7 @@ if (DB_URL) {
 const router       = new HttpRouter();
 const wsServer     = new WsServer(unified);
 const orchestrator = new LiveMatchOrchestrator(unified.pipeline);
+const tournament   = new TournamentEngine();
 const h            = buildHandlers(unified);
 
 wsServer.wireOrchestrator(orchestrator);
@@ -270,6 +274,98 @@ router.get('/feed/status', ({ res }) => {
   });
 });
 
+// ── Turnuva API ───────────────────────────────────────────────────────────────
+
+router.get('/tournament', ({ res }) => {
+  json(res, 200, tournament.getSnapshot());
+});
+
+router.get('/tournament/groups', ({ res }) => {
+  json(res, 200, { groups: tournament.getAllStandings(), phase: tournament.getPhase() });
+});
+
+router.get('/tournament/groups/:groupId', ({ res, params }) => {
+  const gid = params.groupId.toUpperCase() as GroupId;
+  const standings = tournament.getGroupStandings(gid);
+  if (!standings.length) { json(res, 404, { error: 'Grup bulunamadı' }); return; }
+  const matches = tournament.getGroupMatches(gid);
+  json(res, 200, { groupId: gid, standings, matches });
+});
+
+router.get('/tournament/bracket', ({ res }) => {
+  json(res, 200, {
+    phase:    tournament.getPhase(),
+    bracket:  tournament.getBracket(),
+    champion: tournament.getChampion(),
+  });
+});
+
+router.get('/tournament/teams', ({ res }) => {
+  json(res, 200, { teams: WC2026_TEAMS });
+});
+
+router.get('/tournament/schedule', ({ res }) => {
+  const matches = tournament.getAllGroupMatches();
+  const now     = Date.now();
+  json(res, 200, {
+    upcoming: matches.filter(m => m.status === 'SCHEDULED' && m.kickoffAt > now).slice(0, 20),
+    live:     matches.filter(m => m.status === 'LIVE'),
+    recent:   matches.filter(m => m.status === 'FINISHED').slice(-10),
+  });
+});
+
+// Admin: turnuva maçı başlat (gerçek takım kadrosuyla)
+router.post('/admin/tournament/simulate', adminOnly(({ res, body }) => {
+  const { matchId, speed = 3 } = (body as any) ?? {};
+  const match = tournament.getAllGroupMatches().find(m => m.matchId === matchId);
+  if (!match) { json(res, 404, { error: 'Turnuva maçı bulunamadı' }); return; }
+
+  const homeTeam = WC2026_TEAMS.find(t => t.id === match.homeTeam);
+  const awayTeam = WC2026_TEAMS.find(t => t.id === match.awayTeam);
+  if (!homeTeam || !awayTeam) { json(res, 400, { error: 'Takım bilgisi eksik' }); return; }
+
+  const { homePlayers, awayPlayers } = getMatchPlayerPool(match.homeTeam, match.awayTeam);
+
+  try {
+    const id = orchestrator.startTournamentMatch(
+      match.matchId, homeTeam.name, awayTeam.name, homePlayers, awayPlayers, Number(speed),
+    );
+
+    // Maç bitince sonucu turnuva motoruna kaydet
+    const onFull = ({ matchState }: any) => {
+      if (matchState?.matchId !== id) return;
+      tournament.recordGroupResult(id, matchState.homeScore, matchState.awayScore);
+    };
+    orchestrator.once('match_full_time', onFull);
+
+    json(res, 202, {
+      matchId: id,
+      homeTeam: homeTeam.name,
+      awayTeam: awayTeam.name,
+      speed: Number(speed),
+      wsChannel: `match:${id}`,
+    });
+  } catch (e: unknown) {
+    json(res, 409, { error: (e as Error).message });
+  }
+}));
+
+// Admin: grup aşamasını başlat
+router.post('/admin/tournament/start', adminOnly(({ res }) => {
+  tournament.startGroupStage();
+  json(res, 200, { phase: tournament.getPhase(), message: 'Grup aşaması başlatıldı' });
+}));
+
+// Admin: maç sonucu manuel kaydet (test için)
+router.post('/admin/tournament/result', adminOnly(({ res, body }) => {
+  const { matchId, homeScore, awayScore } = (body as any) ?? {};
+  if (typeof homeScore !== 'number' || typeof awayScore !== 'number') {
+    json(res, 400, { error: 'homeScore ve awayScore zorunlu' }); return;
+  }
+  tournament.recordGroupResult(matchId, homeScore, awayScore);
+  json(res, 200, { message: 'Sonuç kaydedildi', matchId, homeScore, awayScore });
+}));
+
 // ── Admin API ────────────────────────────────────────────────────────────────
 //
 // Tüm /admin/* rotaları X-Admin-Secret header'ı gerektirir.
@@ -417,7 +513,9 @@ server.listen(PORT, () => {
   console.log('Transfer:     POST /transfer/buy  |  /transfer/sell');
   console.log('Maç:          POST /match/simulate  (oto) | /match/start (manuel)');
   console.log('              GET  /match/:matchId  |  GET  /matches');
-  console.log('Sıralama:     GET  /leaderboard\n');
+  console.log('Sıralama:     GET  /leaderboard');
+  console.log('Turnuva:      GET  /tournament/groups  |  /tournament/bracket');
+  console.log(`              ${WC2026_TEAMS.length} takım, 12 grup, 72 grup maçı yüklendi\n`);
 
   // Sunucu hazır olunca otomatik maç döngüsü başlat
   autoMatchLoop();

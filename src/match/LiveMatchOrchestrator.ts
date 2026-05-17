@@ -5,8 +5,10 @@ import { MatchState }       from '../events/types';
 import {
   buildFinalScenario,
   buildRandomMatch,
+  buildTournamentMatch,
   MatchScenario,
 } from '../mock/MatchSimulator';
+import { Player } from '../wallet/types';
 
 // ── LiveMatchOrchestrator ─────────────────────────────────────────────────────
 //
@@ -110,6 +112,50 @@ export class LiveMatchOrchestrator extends EventEmitter {
     });
 
     return matchId;
+  }
+
+  // ── Turnuva maçı başlat ───────────────────────────────────────────────────
+  //
+  // Gerçek WC2026 maçı: sadece o takımların oyuncuları event üretir.
+
+  startTournamentMatch(
+    tournamentMatchId: string,
+    homeTeam:     string,
+    awayTeam:     string,
+    homePlayers:  Player[],
+    awayPlayers:  Player[],
+    speed         = 1.0,
+  ): string {
+    if (this.active.has(tournamentMatchId)) {
+      throw new Error(`Maç zaten çalışıyor: ${tournamentMatchId}`);
+    }
+
+    const result = buildTournamentMatch(
+      tournamentMatchId, homeTeam, awayTeam, homePlayers, awayPlayers,
+    );
+
+    result.events.forEach(e => { e.matchId = tournamentMatchId; });
+
+    const state = this.pipeline.startMatch(tournamentMatchId, homeTeam, awayTeam);
+
+    const running: RunningMatch = {
+      scenario:      result,
+      state:         { ...state },
+      abortFlag:     false,
+      startedAt:     Date.now(),
+      speed,
+      homePlayerIds: result.homePlayerIds,
+    };
+
+    this.active.set(tournamentMatchId, running);
+    this.emit('match_kick_off', { matchState: { ...running.state } });
+
+    this.runLoop(tournamentMatchId, running).catch(err => {
+      console.error(`[Orchestrator] ${tournamentMatchId} hata:`, err.message);
+      this.active.delete(tournamentMatchId);
+    });
+
+    return tournamentMatchId;
   }
 
   // ── Durdur ────────────────────────────────────────────────────────────────

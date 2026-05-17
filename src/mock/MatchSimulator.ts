@@ -25,6 +25,78 @@ export const WORLD_CUP_PLAYERS: Player[] = [
   { id: 'osimhen',    name: 'V. Osimhen',     position: 'FWD', marketPrice: 1700, performanceScore: 0 },
 ];
 
+// ── Turnuva maçı: sadece o takımların oyuncularıyla ──────────────────────────
+//
+// homePlayers / awayPlayers boşsa normal rastgele simülasyona düşer.
+// homePlayerIds set olarak döner — orchestrator ev sahibi golcüleri belirler.
+
+export interface TournamentMatchResult extends MatchScenario {
+  homePlayerIds: Set<string>;
+}
+
+export function buildTournamentMatch(
+  matchId:     string,
+  homeTeam:    string,
+  awayTeam:    string,
+  homePlayers: Player[],
+  awayPlayers: Player[],
+): TournamentMatchResult {
+  // Hiç kayıtlı oyuncu yoksa standart rastgele simülasyona dön
+  if (homePlayers.length === 0 && awayPlayers.length === 0) {
+    const base = buildRandomMatch(matchId, homeTeam, awayTeam);
+    const goalScorers = base.events.filter(e => e.type === 'GOAL').map(e => e.playerId);
+    return { ...base, homePlayerIds: new Set(goalScorers.slice(0, Math.ceil(goalScorers.length / 2))) };
+  }
+
+  const allPlayers = [...homePlayers, ...awayPlayers];
+  const fwds       = allPlayers.filter(p => p.position === 'FWD');
+  const mids       = allPlayers.filter(p => p.position === 'MID');
+  const defs       = allPlayers.filter(p => p.position === 'DEF');
+  const gks        = allPlayers.filter(p => p.position === 'GK');
+
+  // Yedek olarak tam havuzu kullan (takımda bu pozisyonda kimse yoksa)
+  const allFwds = fwds.length ? fwds : WORLD_CUP_PLAYERS.filter(p => p.position === 'FWD');
+  const allMids = mids.length ? mids : WORLD_CUP_PLAYERS.filter(p => p.position === 'MID');
+  const allDefs = defs.length ? defs : WORLD_CUP_PLAYERS.filter(p => p.position === 'DEF');
+  const allGks  = gks.length  ? gks  : WORLD_CUP_PLAYERS.filter(p => p.position === 'GK');
+
+  const events: MatchEvent[] = [];
+  const usedMinutes          = new Set<number>();
+  const homeIds              = new Set(homePlayers.map(p => p.id));
+  const homePlayerIds        = new Set<string>();
+
+  const goalCount = 2 + Math.floor(Math.random() * 4);
+
+  // Goller — ev/deplasman dengeli dağıt
+  for (let i = 0; i < goalCount; i++) {
+    const isHome = i % 2 === 0;
+    const pool   = isHome ? homePlayers.filter(p => p.position === 'FWD') : awayPlayers.filter(p => p.position === 'FWD');
+    const scorer = pick(pool.length ? pool : allFwds);
+    const mid    = pick(allMids);
+    const minute = uniqueMinute(usedMinutes, 5, 85);
+
+    if (homeIds.has(scorer.id)) homePlayerIds.add(scorer.id);
+    events.push(makeEvent(matchId, scorer.id, 'FWD', 'GOAL',   minute));
+    events.push(makeEvent(matchId, mid.id,    'MID', 'ASSIST', minute));
+  }
+
+  if (Math.random() > 0.4) {
+    const carded = pick([...allDefs, ...allMids]);
+    events.push(makeEvent(matchId, carded.id, carded.position, 'YELLOW_CARD', uniqueMinute(usedMinutes, 20, 88)));
+  }
+
+  if (allGks.length && Math.random() > 0.5) {
+    const gk = pick(allGks);
+    events.push(makeEvent(matchId, gk.id, 'GK', 'CLEAN_SHEET', 90));
+    if (homeIds.has(gk.id)) homePlayerIds.add(gk.id);
+  }
+
+  events.push(makeEvent(matchId, pick(allFwds).id, 'FWD', 'MAN_OF_MATCH', 90));
+  events.sort((a, b) => a.minute - b.minute);
+
+  return { matchId, homeTeam, awayTeam, events, homePlayerIds };
+}
+
 // ── Maç Senaryoları ────────────────────────────────────────────────────────────
 
 export interface MatchScenario {
