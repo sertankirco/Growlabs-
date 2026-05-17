@@ -18,12 +18,19 @@ import { PgPool, parseDatabaseUrl } from '../db/PgPool';
 import { migrate }               from '../db/migrate';
 import { LiveMatchOrchestrator } from '../match/LiveMatchOrchestrator';
 import { PgSubscriber }          from '../db/PgSubscriber';
+import { RateLimiter }           from './RateLimiter';
+import { Metrics }               from './Metrics';
 
 // Startup'ta bir kez oku — route istekte tekrar okumaz
 const UI_HTML = readFileSync(join(__dirname, '../../public/index.html'), 'utf8');
 
 const PORT   = Number(process.env.PORT ?? 3000);
 const DB_URL = process.env.DATABASE_URL;
+
+// Dakikada 120 istek (genel) / 10 istek (auth — brute-force koruması)
+const apiRl  = new RateLimiter(120, 60_000);
+const authRl = new RateLimiter(10,  60_000);
+const metrics = new Metrics();
 
 // ── Uygulama Başlatma ─────────────────────────────────────────────────────────
 //
@@ -149,6 +156,15 @@ router.get('/ws/stats', ({ res }) => {
   json(res, 200, { connections: wsServer.getConnectionCount(), timestamp: new Date().toISOString() });
 });
 
+router.get('/metrics', ({ res }) => {
+  const body = metrics.toPrometheus({
+    ws_connections_active: wsServer.getConnectionCount(),
+    active_matches:        orchestrator.listActive().length,
+  });
+  res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
+  res.end(body);
+});
+
 router.post('/feed/webhook/:provider', async ({ req, res, params, query }) => {
   const provider = params.provider.toUpperCase() as ProviderId;
   const matchId  = query['matchId'] ?? query['match_id'] ?? 'unknown';
@@ -177,7 +193,30 @@ const server = createServer((req, res) => {
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return; }
 
+  // ── Rate limiting ─────────────────────────────────────────────────────────
+  const ip       = getClientIp(req);
+  const isAuth   = req.url?.startsWith('/auth') || req.url?.startsWith('/users');
+  const rl       = isAuth ? authRl : apiRl;
+  const { ok, remaining, retryAfterMs } = rl.allow(ip);
+
+  if (!ok) {
+    metrics.inc('http_ratelimited_total');
+    res.writeHead(429, {
+      'Content-Type':        'application/json',
+      'X-RateLimit-Limit':   String(rl.limit),
+      'X-RateLimit-Remaining': '0',
+      'Retry-After':         String(Math.ceil(retryAfterMs / 1000)),
+    });
+    res.end(JSON.stringify({ error: 'Çok fazla istek — lütfen bekleyin', retryAfterMs }));
+    return;
+  }
+  res.setHeader('X-RateLimit-Remaining', String(remaining));
+
+  // ── Metrics + routing ─────────────────────────────────────────────────────
+  metrics.inc('http_requests_total');
+
   router.handle(req, res).catch(err => {
+    metrics.inc('http_errors_total');
     console.error('Unhandled error:', err);
     if (!res.headersSent) {
       res.writeHead(500, { 'Content-Type': 'application/json' });
@@ -242,6 +281,12 @@ function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+function getClientIp(req: import('http').IncomingMessage): string {
+  const xff = req.headers['x-forwarded-for'];
+  if (typeof xff === 'string') return xff.split(',')[0].trim();
+  return (req.socket as any)?.remoteAddress ?? 'unknown';
+}
+
 // ── Graceful Shutdown ─────────────────────────────────────────────────────────
 
 async function gracefulShutdown(signal: string): Promise<void> {
@@ -259,6 +304,10 @@ async function gracefulShutdown(signal: string): Promise<void> {
 
   // WS bağlantılarını kapat
   wsServer.close();
+
+  // Rate limiter zamanlayıcılarını kapat
+  apiRl.destroy();
+  authRl.destroy();
 
   // Pg bağlantılarını kapat
   await Promise.allSettled([

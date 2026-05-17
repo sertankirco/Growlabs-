@@ -18,6 +18,7 @@ export type ServerMessage =
   | MarketUpdateMsg
   | MatchEventMsg
   | MatchStatusMsg
+  | MatchSnapshotMsg
   | MatchUpcomingMsg
   | LeaderboardUpdateMsg
   | SubscribedMsg
@@ -64,6 +65,19 @@ export interface MatchStatusMsg {
   type:      'MATCH_STATUS';
   matchId:   string;
   status:    'KICK_OFF' | 'HALF_TIME' | 'FULL_TIME' | 'ABORTED';
+  homeTeam:  string;
+  awayTeam:  string;
+  homeScore: number;
+  awayScore: number;
+  minute:    number;
+  timestamp: number;
+}
+
+// Abonelik sonrası anlık maç durumu — reconnect desteği
+export interface MatchSnapshotMsg {
+  type:      'MATCH_SNAPSHOT';
+  matchId:   string;
+  status:    'LIVE' | 'FINISHED' | 'SCHEDULED';
   homeTeam:  string;
   awayTeam:  string;
   homeScore: number;

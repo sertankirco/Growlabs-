@@ -7,6 +7,7 @@ import { UnifiedContext } from '../context/UnifiedContext';
 import { LiveMatchOrchestrator } from '../match/LiveMatchOrchestrator';
 import { MatchState } from '../events/types';
 import { PgSubscriber } from '../db/PgSubscriber';
+import { WORLD_CUP_PLAYERS } from '../mock/MatchSimulator';
 
 // ── WsServer ──────────────────────────────────────────────────────────────────
 //
@@ -23,11 +24,17 @@ import { PgSubscriber } from '../db/PgSubscriber';
 // kurulur; bu sayede HTTP handler'lar pipeline'ı doğrudan çağırabilir ve WS
 // otomatik olarak tüm aboneleri bildirir.
 
-const HEARTBEAT_INTERVAL = 30_000;   // 30 sn ping döngüsü
+const HEARTBEAT_INTERVAL  = 30_000;   // 30 sn ping döngüsü
+const MAX_CONN_PER_IP     = 5;        // tek IP'den maksimum eşzamanlı WS bağlantısı
 
 export class WsServer {
-  private readonly connections = new Map<string, WsConnection>();
+  private readonly connections    = new Map<string, WsConnection>();
+  private readonly connsByIp      = new Map<string, Set<string>>();  // ip → connId[]
   private heartbeatTimer?: ReturnType<typeof setInterval>;
+
+  private readonly playerNames = new Map<string, string>(
+    WORLD_CUP_PLAYERS.map(p => [p.id, p.name]),
+  );
 
   constructor(private readonly ctx: UnifiedContext) {}
 
@@ -155,6 +162,7 @@ export class WsServer {
     if (this.heartbeatTimer) clearInterval(this.heartbeatTimer);
     for (const conn of this.connections.values()) conn.close();
     this.connections.clear();
+    this.connsByIp.clear();
   }
 
   // ── HTTP Upgrade handshake ────────────────────────────────────────────────
@@ -167,6 +175,15 @@ export class WsServer {
       return;
     }
 
+    // IP bazlı bağlantı limiti
+    const ip      = extractIp(req);
+    const ipConns = this.connsByIp.get(ip) ?? new Set<string>();
+    if (ipConns.size >= MAX_CONN_PER_IP) {
+      socket.write('HTTP/1.1 429 Too Many Connections\r\nConnection: close\r\n\r\n');
+      socket.destroy();
+      return;
+    }
+
     socket.write(buildHandshakeResponse(key));
 
     const conn = new WsConnection(
@@ -174,8 +191,11 @@ export class WsServer {
       (c, msg)  => this.handleMessage(c, msg),
       (c)       => this.handleDisconnect(c),
     );
+    (conn as any).remoteIp = ip;
 
     this.connections.set(conn.id, conn);
+    ipConns.add(conn.id);
+    this.connsByIp.set(ip, ipConns);
 
     conn.send({
       type:         'CONNECTED',
@@ -191,11 +211,12 @@ export class WsServer {
     switch (msg.type) {
       case 'SUBSCRIBE': {
         conn.subscribe(msg.channel);
-        // wallet kanalı için userId'yi bağlantıya kaydet
         if (msg.channel.startsWith('wallet:') && msg.userId) {
           conn.userId = msg.userId;
         }
         conn.send({ type: 'SUBSCRIBED', channel: msg.channel });
+        // Anlık durum snapshot'ı gönder (reconnect desteği)
+        this.pushSnapshot(conn, msg.channel).catch(() => {});
         break;
       }
       case 'UNSUBSCRIBE': {
@@ -211,6 +232,67 @@ export class WsServer {
 
   private handleDisconnect(conn: WsConnection): void {
     this.connections.delete(conn.id);
+    const ip = (conn as any).remoteIp as string | undefined;
+    if (ip) {
+      const ipConns = this.connsByIp.get(ip);
+      if (ipConns) {
+        ipConns.delete(conn.id);
+        if (ipConns.size === 0) this.connsByIp.delete(ip);
+      }
+    }
+  }
+
+  // ── Snapshot — abone olunca anlık durum push ──────────────────────────────
+  //
+  // Reconnect eden istemci sunucu eventleri beklemek zorunda kalmaz;
+  // kanal durumu hemen iletilir.
+
+  private async pushSnapshot(conn: WsConnection, channel: string): Promise<void> {
+    if (channel === 'market') {
+      const snapshots = await this.ctx.market.getAllSnapshots();
+      for (const snap of snapshots) {
+        conn.send({
+          type:      'MARKET_UPDATE',
+          playerId:  snap.playerId,
+          name:      this.playerNames.get(snap.playerId) ?? snap.playerId,
+          oldPrice:  snap.currentPrice,
+          newPrice:  snap.currentPrice,
+          changePct: snap.change24h,
+          trend:     snap.trend,
+          timestamp: Date.now(),
+        });
+      }
+    } else if (channel === 'leaderboard') {
+      const entries = await this.ctx.wallet.getLeaderboard();
+      const top10   = entries.slice(0, 10).map((e, i) => ({
+        rank: i + 1, userId: e.userId, available: e.available,
+      }));
+      conn.send({ type: 'LEADERBOARD_UPDATE', top10, timestamp: Date.now() });
+    } else if (channel.startsWith('match:')) {
+      const matchId = channel.slice(6);
+      try {
+        const s = this.ctx.pipeline.getMatch(matchId);
+        conn.send({
+          type: 'MATCH_SNAPSHOT', matchId: s.matchId,
+          status: s.status === 'LIVE' ? 'LIVE' : s.status === 'FINISHED' ? 'FINISHED' : 'SCHEDULED',
+          homeTeam: s.homeTeam, awayTeam: s.awayTeam,
+          homeScore: s.homeScore, awayScore: s.awayScore,
+          minute: s.minute, timestamp: Date.now(),
+        });
+      } catch { /* maç henüz başlamamış */ }
+    } else if (channel.startsWith('wallet:')) {
+      const userId = channel.slice(7);
+      try {
+        const [available, snap] = await Promise.all([
+          this.ctx.wallet.getAvailable(userId),
+          this.ctx.wallet.getWallet(userId),
+        ]);
+        conn.send({
+          type: 'WALLET_UPDATE', userId, available,
+          balance: snap.balance, delta: 0, reason: 'snapshot', timestamp: Date.now(),
+        });
+      } catch { /* cüzdan henüz oluşturulmamış */ }
+    }
   }
 
   // ── EventPipeline / PgSubscriber ortak fan-out mantığı ───────────────────────
@@ -282,9 +364,24 @@ export class WsServer {
   private startHeartbeat(): void {
     this.heartbeatTimer = setInterval(() => {
       for (const [id, conn] of this.connections) {
-        if (!conn.isAlive) { this.connections.delete(id); }
+        if (!conn.isAlive) {
+          this.connections.delete(id);
+          const ip = (conn as any).remoteIp as string | undefined;
+          if (ip) {
+            const s = this.connsByIp.get(ip);
+            if (s) { s.delete(id); if (s.size === 0) this.connsByIp.delete(ip); }
+          }
+        }
       }
     }, HEARTBEAT_INTERVAL);
-    this.heartbeatTimer.unref?.(); // Node.js event loop'u bloke etme
+    this.heartbeatTimer.unref?.();
   }
+}
+
+// ── Yardımcı ────────────────────────────────────────────────────────────────
+
+function extractIp(req: IncomingMessage): string {
+  const xff = req.headers['x-forwarded-for'];
+  if (typeof xff === 'string') return xff.split(',')[0].trim();
+  return (req.socket as any)?.remoteAddress ?? 'unknown';
 }

@@ -584,6 +584,7 @@ function connect() {
       case 'SUBSCRIBED':       return;
       case 'MARKET_UPDATE':    return onMarketUpdate(msg);
       case 'MATCH_UPCOMING':   return onMatchUpcoming(msg);
+      case 'MATCH_SNAPSHOT':   return onMatchSnapshot(msg);
       case 'MATCH_STATUS':     return onMatchStatus(msg);
       case 'MATCH_EVENT':      return onMatchEvent(msg);
       case 'WALLET_UPDATE':    return onWalletUpdate(msg);
@@ -718,6 +719,20 @@ function clearCountdown() {
 }
 
 // ── Match status ───────────────────────────────────────────────────────────────
+// Reconnect sonrası anlık maç durumu
+function onMatchSnapshot(msg) {
+  currentMatchId = msg.matchId;
+  document.getElementById('match-teams').textContent = `${msg.homeTeam} vs ${msg.awayTeam}`;
+  document.getElementById('match-score').textContent = `${msg.homeScore} : ${msg.awayScore}`;
+  document.getElementById('match-min-val').textContent = msg.minute + "'";
+  const badge = document.getElementById('match-status-badge');
+  if (msg.status === 'LIVE') {
+    badge.textContent = 'CANLI'; badge.className = 'match-status-badge badge-live';
+  } else if (msg.status === 'FINISHED') {
+    badge.textContent = 'BİTTİ'; badge.className = 'match-status-badge badge-finished';
+  }
+}
+
 function onMatchStatus(msg) {
   clearCountdown();
   currentMatchId = msg.matchId;
