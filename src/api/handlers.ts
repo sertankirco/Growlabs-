@@ -103,6 +103,44 @@ export function buildHandlers(ctx: UnifiedContext) {
     }
   }
 
+  // GET /squad/:userId/value  — kadro piyasa değeri + P&L  [korumalı]
+  async function getSquadValue(ctx2: RouteContext) {
+    if (!assertSelf(ctx2, ctx2.params.userId)) return;
+    try {
+      const snap  = await ctx.squad.getSquad(ctx2.params.userId);
+      const wallet = await ctx.wallet.getWallet(ctx2.params.userId);
+
+      const entries = await Promise.all(
+        snap.entries.map(async e => {
+          let currentPrice = 0;
+          try { currentPrice = await ctx.market.getPrice(e.playerId); } catch { /* kayıtsız */ }
+          const player = WORLD_CUP_PLAYERS.find(p => p.id === e.playerId);
+          return {
+            playerId:     e.playerId,
+            name:         player?.name ?? e.playerId,
+            slot:         e.slot,
+            currentPrice,
+          };
+        }),
+      );
+
+      const portfolioValue = entries.reduce((s, e) => s + e.currentPrice, 0);
+      // Basit P&L: mevcut portföy değeri − başlangıç bakiyesi ile karşılaştırma
+      const totalAssets = wallet.available + portfolioValue;
+
+      json(ctx2.res, 200, {
+        userId:       ctx2.params.userId,
+        entries,
+        portfolioValue,
+        cashAvailable: wallet.available,
+        totalAssets,
+        playerCount:  entries.length,
+      });
+    } catch (e: unknown) {
+      json(ctx2.res, 404, { error: (e as Error).message });
+    }
+  }
+
   // POST /transfer/buy  { playerId, slot, idempotencyKey? }  [korumalı]
   // userId artık body'den değil, token'dan alınır
   async function buyPlayer(ctx2: RouteContext) {
@@ -206,7 +244,7 @@ export function buildHandlers(ctx: UnifiedContext) {
     marketAll, marketPlayer,
     createUser, login,
     getWallet, walletHistory,
-    getSquad,
+    getSquad, getSquadValue,
     buyPlayer, sellPlayer,
     pushMatchEvent, startMatch,
     leaderboard,

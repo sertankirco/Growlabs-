@@ -8,6 +8,7 @@ import { LiveMatchOrchestrator } from '../match/LiveMatchOrchestrator';
 import { MatchState } from '../events/types';
 import { PgSubscriber } from '../db/PgSubscriber';
 import { WORLD_CUP_PLAYERS } from '../mock/MatchSimulator';
+import { TtlCache }          from '../api/TtlCache';
 
 // ── WsServer ──────────────────────────────────────────────────────────────────
 //
@@ -35,6 +36,9 @@ export class WsServer {
   private readonly playerNames = new Map<string, string>(
     WORLD_CUP_PLAYERS.map(p => [p.id, p.name]),
   );
+
+  // Leaderboard sık sorgulanır; 5sn TTL ile DB yükü azaltılır
+  private readonly leaderboardCache = new TtlCache<Array<{ rank: number; userId: string; available: number }>>(5_000);
 
   constructor(private readonly ctx: UnifiedContext) {}
 
@@ -121,15 +125,19 @@ export class WsServer {
   }
 
   private pushLeaderboard(): void {
+    const cached = this.leaderboardCache.get();
+    const resolve = (top10: Array<{ rank: number; userId: string; available: number }>) => {
+      this.broadcast('leaderboard', { type: 'LEADERBOARD_UPDATE', top10, timestamp: Date.now() });
+    };
+
+    if (cached) { resolve(cached); return; }
+
     this.ctx.wallet.getLeaderboard().then(entries => {
       const top10 = entries.slice(0, 10).map((e, i) => ({
-        rank:      i + 1,
-        userId:    e.userId,
-        available: e.available,
+        rank: i + 1, userId: e.userId, available: e.available,
       }));
-      this.broadcast('leaderboard', {
-        type: 'LEADERBOARD_UPDATE', top10, timestamp: Date.now(),
-      });
+      this.leaderboardCache.set(top10);
+      resolve(top10);
     }).catch(() => {});
   }
 
@@ -263,10 +271,12 @@ export class WsServer {
         });
       }
     } else if (channel === 'leaderboard') {
-      const entries = await this.ctx.wallet.getLeaderboard();
-      const top10   = entries.slice(0, 10).map((e, i) => ({
-        rank: i + 1, userId: e.userId, available: e.available,
-      }));
+      let top10 = this.leaderboardCache.get();
+      if (!top10) {
+        const entries = await this.ctx.wallet.getLeaderboard();
+        top10 = entries.slice(0, 10).map((e, i) => ({ rank: i + 1, userId: e.userId, available: e.available }));
+        this.leaderboardCache.set(top10);
+      }
       conn.send({ type: 'LEADERBOARD_UPDATE', top10, timestamp: Date.now() });
     } else if (channel.startsWith('match:')) {
       const matchId = channel.slice(6);

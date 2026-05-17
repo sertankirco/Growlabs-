@@ -48,8 +48,9 @@ let shuttingDown = false;
 if (DB_URL) {
   // ── PostgreSQL modu ───────────────────────────────────────────────────────────
   console.log('🐘  DATABASE_URL algılandı — PostgreSQL modunda başlatılıyor...');
-  const dbCfg = parseDatabaseUrl(DB_URL);
-  const pool  = new PgPool(dbCfg, 10);
+  const dbCfg   = parseDatabaseUrl(DB_URL);
+  const poolSize = Number(process.env.PG_POOL_SIZE ?? 10);
+  const pool     = new PgPool(dbCfg, poolSize);
   const pgCtx = createPgContext(pool);
   pgPoolRef   = pool;
 
@@ -113,6 +114,7 @@ router.post('/auth/login',             h.login);               // var olan kulla
 router.get ('/wallet/:userId',         requireAuth(h.getWallet));
 router.get ('/wallet/:userId/history', requireAuth(h.walletHistory));
 router.get ('/squad/:userId',          requireAuth(h.getSquad));
+router.get ('/squad/:userId/value',   requireAuth(h.getSquadValue));
 router.post('/transfer/buy',           requireAuth(h.buyPlayer));
 router.post('/transfer/sell',          requireAuth(h.sellPlayer));
 router.post('/match/start',            h.startMatch);
