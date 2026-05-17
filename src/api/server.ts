@@ -533,44 +533,135 @@ server.listen(PORT, () => {
 });
 
 // Her maç ~30 saniye (speed=3), ardından 15 saniye ara (MATCH_UPCOMING duyurusu), yeni maç.
-// Kaldırmak için bu fonksiyonu ve çağrısını sil — başka hiçbir şey değişmez.
+// Turnuva GROUP_STAGE'deyken gerçek WC2026 maçlarını sırayla oynar.
 async function autoMatchLoop(): Promise<void> {
   const MATCH_SPEED = 3;
-  const BREAK_MS    = 15_000;
-  let   backoff     = 1_000;   // hata sonrası yeniden başlama gecikmesi
+  const BREAK_MS    = 12_000;
+  let   backoff     = 1_000;
+
+  // Grup aşamasını başlat
+  tournament.startGroupStage();
+  console.log('[AutoMatch] WC2026 grup aşaması başladı — 72 maç sıraya alındı');
 
   while (!shuttingDown) {
     try {
-      const matchId = orchestrator.startSimulation('random', MATCH_SPEED);
-      console.log(`[AutoMatch] Maç başladı: ${matchId}`);
-      backoff = 1_000; // başarılı start → backoff sıfırla
+      const phase = tournament.getPhase();
 
-      await new Promise<void>(resolve => {
-        const onFull = ({ matchState }: any) => {
-          if (matchState?.matchId !== matchId) return;
-          orchestrator.off('match_aborted', onAbort);
-          resolve();
-        };
-        const onAbort = ({ matchId: id }: any) => {
-          if (id !== matchId) return;
-          orchestrator.off('match_full_time', onFull);
-          resolve();
-        };
-        orchestrator.once('match_full_time', onFull);
-        orchestrator.once('match_aborted',   onAbort);
-      });
+      // ── Grup aşaması: turnuva maçlarını sırayla çalıştır ────────────────────
+      if (phase === 'GROUP_STAGE') {
+        const pending = tournament.getAllGroupMatches()
+          .filter(m => m.status === 'SCHEDULED')
+          .sort((a, b) => a.kickoffAt - b.kickoffAt);
+
+        if (pending.length === 0) { await sleep(5_000); continue; }
+
+        const next         = pending[0];
+        const homeTeamData = WC2026_TEAMS.find(t => t.id === next.homeTeam);
+        const awayTeamData = WC2026_TEAMS.find(t => t.id === next.awayTeam);
+        if (!homeTeamData || !awayTeamData) { continue; }
+
+        const { homePlayers, awayPlayers } = getMatchPlayerPool(next.homeTeam, next.awayTeam);
+
+        orchestrator.announceUpcoming('random', BREAK_MS);
+        await sleep(BREAK_MS);
+        if (shuttingDown) break;
+
+        const matchId = orchestrator.startTournamentMatch(
+          next.matchId,
+          homeTeamData.name,
+          awayTeamData.name,
+          homePlayers,
+          awayPlayers,
+          MATCH_SPEED,
+        );
+        backoff = 1_000;
+        console.log(`[AutoMatch] ${homeTeamData.flag ?? ''} ${homeTeamData.name} vs ${awayTeamData.name} ${awayTeamData.flag ?? ''} — Grup ${next.groupId}`);
+
+        await new Promise<void>(resolve => {
+          const onFull = ({ matchState }: any) => {
+            if (matchState?.matchId !== matchId) return;
+            orchestrator.off('match_aborted', onAbort);
+            tournament.recordGroupResult(matchId, matchState.homeScore, matchState.awayScore);
+            console.log(`[AutoMatch] Sonuç: ${matchState.homeScore}-${matchState.awayScore}`);
+            resolve();
+          };
+          const onAbort = ({ matchId: id }: any) => {
+            if (id !== matchId) return;
+            orchestrator.off('match_full_time', onFull);
+            resolve();
+          };
+          orchestrator.once('match_full_time', onFull);
+          orchestrator.once('match_aborted',   onAbort);
+        });
+
+      // ── Eleme aşaması: bracket maçları ──────────────────────────────────────
+      } else if (phase === 'KNOCKOUT') {
+        const nextKo = tournament.getBracket()
+          .find(m => m.status === 'SCHEDULED' && m.homeTeam && m.awayTeam);
+
+        if (!nextKo) { await sleep(5_000); continue; }
+
+        const homeTeamData = WC2026_TEAMS.find(t => t.id === nextKo.homeTeam);
+        const awayTeamData = WC2026_TEAMS.find(t => t.id === nextKo.awayTeam);
+        const { homePlayers, awayPlayers } = getMatchPlayerPool(
+          nextKo.homeTeam ?? '', nextKo.awayTeam ?? '',
+        );
+
+        orchestrator.announceUpcoming('random', BREAK_MS);
+        await sleep(BREAK_MS);
+        if (shuttingDown) break;
+
+        const homeN = homeTeamData?.name ?? nextKo.homeTeam ?? 'TBD';
+        const awayN = awayTeamData?.name ?? nextKo.awayTeam ?? 'TBD';
+
+        const matchId = orchestrator.startTournamentMatch(
+          nextKo.matchId, homeN, awayN, homePlayers, awayPlayers, MATCH_SPEED,
+        );
+        backoff = 1_000;
+        console.log(`[AutoMatch] ${nextKo.round}: ${homeN} vs ${awayN}`);
+
+        await new Promise<void>(resolve => {
+          const onFull = ({ matchState }: any) => {
+            if (matchState?.matchId !== matchId) return;
+            orchestrator.off('match_aborted', onAbort);
+            tournament.recordKnockoutResult(matchId, matchState.homeScore, matchState.awayScore);
+            resolve();
+          };
+          const onAbort = ({ matchId: id }: any) => {
+            if (id !== matchId) return;
+            orchestrator.off('match_full_time', onFull);
+            resolve();
+          };
+          orchestrator.once('match_full_time', onFull);
+          orchestrator.once('match_aborted',   onAbort);
+        });
+
+      // ── Turnuva bitti ────────────────────────────────────────────────────────
+      } else if (phase === 'FINISHED') {
+        console.log(`[AutoMatch] 🏆 Dünya Kupası tamamlandı! Şampiyon: ${tournament.getChampion()}`);
+        // Turnuva bitince rastgele maçlara dön (demo modu)
+        while (!shuttingDown) {
+          const matchId = orchestrator.startSimulation('random', MATCH_SPEED);
+          await new Promise<void>(resolve => {
+            orchestrator.once('match_full_time', ({ matchState }: any) => {
+              if (matchState?.matchId === matchId) resolve();
+            });
+            orchestrator.once('match_aborted', ({ matchId: id }: any) => {
+              if (id === matchId) resolve();
+            });
+          });
+          await sleep(BREAK_MS);
+        }
+        break;
+      }
 
       if (shuttingDown) break;
-
-      console.log(`[AutoMatch] Maç bitti: ${matchId} — ${BREAK_MS / 1000}sn ara`);
-      orchestrator.announceUpcoming('random', BREAK_MS);
-      await sleep(BREAK_MS);
 
     } catch (err) {
       console.error(`[AutoMatch] Hata — ${backoff / 1000}sn sonra yeniden başlıyor:`, err);
       if (!shuttingDown) {
         await sleep(backoff);
-        backoff = Math.min(backoff * 2, 30_000); // exponential backoff, maks 30sn
+        backoff = Math.min(backoff * 2, 30_000);
       }
     }
   }

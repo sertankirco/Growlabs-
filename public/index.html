@@ -472,6 +472,160 @@
   ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
 
   .tag { font-size: 10px; color: var(--muted); }
+
+  /* ── Tournament Drawer ──────────────────────────────── */
+  #tournament-btn {
+    background: var(--purple);
+    color: #000;
+    font-size: 12px;
+    padding: 5px 10px;
+    white-space: nowrap;
+  }
+
+  #tournament-drawer {
+    position: fixed;
+    top: 0; right: -440px;
+    width: 440px;
+    height: 100vh;
+    background: var(--surface);
+    border-left: 1px solid var(--border);
+    z-index: 5000;
+    transition: right .28s cubic-bezier(.4,0,.2,1);
+    display: flex;
+    flex-direction: column;
+    box-shadow: -8px 0 32px rgba(0,0,0,.5);
+  }
+  #tournament-drawer.open { right: 0; }
+
+  @media (max-width: 700px) {
+    #tournament-drawer { width: 100vw; right: -100vw; }
+  }
+
+  #tournament-drawer-header {
+    padding: 10px 14px;
+    background: var(--bg);
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-weight: 600;
+    font-size: 13px;
+    flex-shrink: 0;
+  }
+
+  #tournament-phase-badge {
+    font-size: 10px;
+    padding: 2px 6px;
+    border-radius: 10px;
+    background: var(--purple);
+    color: #000;
+    font-weight: 700;
+  }
+
+  #tournament-close {
+    margin-left: auto;
+    background: none;
+    border: none;
+    color: var(--muted);
+    font-size: 18px;
+    cursor: pointer;
+    padding: 0 4px;
+    line-height: 1;
+  }
+  #tournament-close:hover { color: var(--text); }
+
+  #group-tab-bar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    padding: 8px 10px;
+    background: var(--bg);
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+
+  .gtab {
+    padding: 3px 8px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--muted);
+    transition: all .15s;
+  }
+  .gtab:hover  { border-color: var(--blue); color: var(--blue); }
+  .gtab.active { background: var(--blue); color: #000; border-color: var(--blue); }
+
+  #tournament-body {
+    flex: 1;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* standings */
+  .st-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  .st-table th {
+    padding: 5px 8px;
+    background: var(--surface);
+    color: var(--muted);
+    font-size: 10px;
+    font-weight: 500;
+    text-align: center;
+    border-bottom: 1px solid var(--border);
+    position: sticky; top: 0;
+  }
+  .st-table th:first-child { text-align: left; min-width: 140px; }
+  .st-table td { padding: 7px 8px; border-bottom: 1px solid var(--border); text-align: center; }
+  .st-table td:first-child { text-align: left; }
+  .st-table tr:last-child td { border-bottom: none; }
+  .st-table tr.advances { border-left: 2px solid var(--green); }
+  .st-table tr.advances td:first-child { padding-left: 6px; }
+
+  .rank-pip {
+    display: inline-block;
+    width: 16px; height: 16px;
+    line-height: 16px;
+    text-align: center;
+    border-radius: 3px;
+    font-size: 9px;
+    font-weight: 800;
+    margin-right: 4px;
+    vertical-align: middle;
+  }
+  .rk1 { background:#ffd700; color:#000; }
+  .rk2 { background:#c0c0c0; color:#000; }
+  .rk3 { background:#cd7f32; color:#fff; }
+  .rk4 { background:var(--border); color:var(--muted); }
+
+  /* upcoming matches */
+  #upcoming-section { border-top: 2px solid var(--border); margin-top: 4px; }
+  .sch-header {
+    padding: 7px 12px;
+    font-size: 10px;
+    font-weight: 700;
+    color: var(--muted);
+    letter-spacing: .5px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+  }
+  .sch-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border);
+    font-size: 12px;
+  }
+  .sch-row:last-child { border-bottom: none; }
+  .sch-teams { flex: 1; font-weight: 600; }
+  .sch-meta  { color: var(--muted); font-size: 11px; }
+  .sch-group { font-size: 10px; background: var(--border); color: var(--text); padding: 2px 5px; border-radius: 3px; font-weight: 700; }
+  .sch-fin   { color: var(--green); font-size: 11px; font-weight: 700; }
+  .sch-live  { color: var(--red); font-size: 11px; font-weight: 700; animation: pulse 1s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
 </style>
 </head>
 <body>
@@ -485,6 +639,7 @@
   <span id="ws-label">bağlanıyor...</span>
   <span id="online-count"></span>
 
+  <button id="tournament-btn" onclick="openTournament()">🏆 Turnuva</button>
   <div id="user-area">
     <input type="text" id="user-input" placeholder="userId (örn: sertan)" maxlength="32">
     <button onclick="loginOrCreate()">Giriş / Kayıt</button>
@@ -500,6 +655,7 @@
   <span class="tab"        onclick="showTab('wallet-panel',  this)">💰 Cüzdan</span>
   <span class="tab"        onclick="showTab('trade-panel',   this)">🔄 Al/Sat</span>
   <span class="tab"        onclick="showTab('admin-panel',   this)">⚙️ Admin</span>
+  <span class="tab"        onclick="openTournament()">🏆 Turnuva</span>
 </div>
 
 <!-- ── Main Grid ───────────────────────────────────────── -->
@@ -790,7 +946,7 @@ function updateMarketRow(playerId, trend) {
   const cls   = chg > 0.5 ? 'up' : chg < -0.5 ? 'down' : 'stable';
 
   row.innerHTML = `
-    <td style="font-weight:600">${p.name || playerId}</td>
+    <td style="font-weight:600">${getPlayerTeamBadge(playerId)} ${p.name || playerId}</td>
     <td><span class="pos-badge pos-${p.position || ''}">${p.position || ''}</span></td>
     <td style="text-align:right;font-weight:700">${p.price ?? '—'}₡</td>
     <td style="text-align:right" class="${cls}">${arrow} ${Math.abs(chg).toFixed(1)}%</td>
@@ -1260,6 +1416,188 @@ function fmt(ts) {
   return new Date(ts).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 }
 
+// ── Tournament ────────────────────────────────────────────────────────────────
+const PLAYER_TEAM_MAP = {
+  'mbappe':     { flag:'🇫🇷', group:'I', team:'Fransa' },
+  'theo':       { flag:'🇫🇷', group:'I', team:'Fransa' },
+  'haaland':    { flag:'🇳🇴', group:'I', team:'Norveç' },
+  'vinicius':   { flag:'🇧🇷', group:'C', team:'Brezilya' },
+  'alisson':    { flag:'🇧🇷', group:'C', team:'Brezilya' },
+  'militao':    { flag:'🇧🇷', group:'C', team:'Brezilya' },
+  'bellingham': { flag:'🏴󠁧󠁢󠁥󠁮󠁧󠁿', group:'L', team:'İngiltere' },
+  'saka':       { flag:'🏴󠁧󠁢󠁥󠁮󠁧󠁿', group:'L', team:'İngiltere' },
+  'pedri':      { flag:'🇪🇸', group:'H', team:'İspanya' },
+  'de-bruyne':  { flag:'🇧🇪', group:'G', team:'Belçika' },
+  'courtois':   { flag:'🇧🇪', group:'G', team:'Belçika' },
+  'modric':     { flag:'🇭🇷', group:'L', team:'Hırvatistan' },
+  'van-dijk':   { flag:'🇳🇱', group:'F', team:'Hollanda' },
+};
+
+let tournamentTeams   = {};  // id → {name,flag,groupId}
+let tournamentGroups  = {};  // groupId → GroupStanding[]
+let activeGroup       = 'A';
+let tournamentRefresh = null;
+
+async function openTournament() {
+  document.getElementById('tournament-drawer').classList.add('open');
+  document.getElementById('tournament-overlay').style.display = 'block';
+  await refreshTournament();
+}
+
+function closeTournament() {
+  document.getElementById('tournament-drawer').classList.remove('open');
+  document.getElementById('tournament-overlay').style.display = 'none';
+}
+
+async function refreshTournament() {
+  try {
+    // Takım isimleri (ilk kez yükle)
+    if (!Object.keys(tournamentTeams).length) {
+      const r = await fetch('/tournament/teams');
+      const d = await r.json();
+      for (const t of (d.teams || [])) tournamentTeams[t.id] = t;
+    }
+
+    // Grup sıralamaları
+    const r = await fetch('/tournament/groups');
+    const d = await r.json();
+    tournamentGroups = d.groups || {};
+
+    // Faz etiketi
+    const phaseLabels = {
+      'PRE_TOURNAMENT': 'HAZIRLIK',
+      'GROUP_STAGE':    'GRUP AŞAMASI',
+      'KNOCKOUT':       'ELEME',
+      'FINISHED':       '🏆 TAMAMLANDI',
+    };
+    const badge = document.getElementById('tournament-phase-badge');
+    if (badge) badge.textContent = phaseLabels[d.phase] || d.phase;
+
+    renderGroupStandings(activeGroup);
+    await loadSchedule();
+  } catch (e) {
+    document.getElementById('standings-container').innerHTML =
+      '<div style="padding:16px;color:var(--muted)">Veri yüklenemedi.</div>';
+  }
+}
+
+function selectGroup(gid, el) {
+  activeGroup = gid;
+  document.querySelectorAll('.gtab').forEach(t => t.classList.remove('active'));
+  el.classList.add('active');
+  renderGroupStandings(gid);
+}
+
+function renderGroupStandings(gid) {
+  const standings = tournamentGroups[gid];
+  const con = document.getElementById('standings-container');
+  if (!standings || !standings.length) {
+    con.innerHTML = `<div style="padding:16px;color:var(--muted)">Grup ${gid} verisi bekleniyor...</div>`;
+    return;
+  }
+
+  // Grup başlığı — takımlar
+  const teamNames = standings.map(s => `${s.flag} ${s.name}`).join(' · ');
+  let html = `
+    <div style="padding:8px 12px;font-size:11px;color:var(--muted);border-bottom:1px solid var(--border);background:var(--surface)">
+      <strong style="color:var(--text);font-size:13px">Grup ${gid}</strong>
+      &nbsp;·&nbsp; ${teamNames}
+    </div>
+    <table class="st-table">
+      <thead><tr>
+        <th>Takım</th><th>O</th><th>G</th><th>B</th><th>M</th>
+        <th>GF</th><th>GA</th><th>GD</th><th style="color:var(--blue)">P</th>
+      </tr></thead>
+      <tbody>`;
+
+  for (const s of standings) {
+    const cls   = s.rank <= 2 ? 'advances' : '';
+    const rkCls = ['rk1','rk2','rk3','rk4'][s.rank - 1] || 'rk4';
+    const gdStr = s.gd > 0 ? `<span class="up">+${s.gd}</span>`
+                : s.gd < 0 ? `<span class="down">${s.gd}</span>`
+                : '0';
+    html += `<tr class="${cls}">
+      <td><span class="rank-pip ${rkCls}">${s.rank}</span>${s.flag} ${s.name}</td>
+      <td>${s.played}</td><td>${s.won}</td><td>${s.drawn}</td><td>${s.lost}</td>
+      <td>${s.gf}</td><td>${s.ga}</td><td>${gdStr}</td>
+      <td style="font-weight:700;color:var(--blue)">${s.points}</td>
+    </tr>`;
+  }
+
+  html += `</tbody></table>
+    <div style="padding:5px 10px;font-size:10px;color:var(--green)">
+      ↑ İlk 2 takım eleme aşamasına geçer
+    </div>`;
+
+  con.innerHTML = html;
+}
+
+async function loadSchedule() {
+  try {
+    const r = await fetch('/tournament/schedule');
+    const d = await r.json();
+    renderSchedule(d.live || [], d.upcoming || [], d.recent || []);
+  } catch {}
+}
+
+function renderSchedule(live, upcoming, recent) {
+  const con = document.getElementById('schedule-container');
+  let html  = '';
+
+  // Canlı maçlar
+  for (const m of live) {
+    const h = teamDisplay(m.homeTeam);
+    const a = teamDisplay(m.awayTeam);
+    html += `<div class="sch-row">
+      <span class="sch-group">Grup ${m.groupId}</span>
+      <span class="sch-teams">${h} vs ${a}</span>
+      <span class="sch-live">● CANLI</span>
+    </div>`;
+  }
+
+  // Son oynanan
+  for (const m of recent.slice().reverse().slice(0, 5)) {
+    const h = teamDisplay(m.homeTeam);
+    const a = teamDisplay(m.awayTeam);
+    html += `<div class="sch-row">
+      <span class="sch-group">Grup ${m.groupId}</span>
+      <span class="sch-teams">${h} vs ${a}</span>
+      <span class="sch-fin">${m.homeScore ?? '?'} - ${m.awayScore ?? '?'}</span>
+    </div>`;
+  }
+
+  // Yaklaşan
+  for (const m of upcoming.slice(0, 8)) {
+    const h   = teamDisplay(m.homeTeam);
+    const a   = teamDisplay(m.awayTeam);
+    const dt  = new Date(m.kickoffAt);
+    const dts = dt.toLocaleDateString('tr-TR', { day:'2-digit', month:'short' }) + ' ' +
+                dt.toLocaleTimeString('tr-TR', { hour:'2-digit', minute:'2-digit' });
+    html += `<div class="sch-row">
+      <span class="sch-group">Grup ${m.groupId}</span>
+      <span class="sch-teams">${h} vs ${a}</span>
+      <span class="sch-meta">${dts}</span>
+    </div>`;
+  }
+
+  if (!html) {
+    html = '<div style="padding:12px;color:var(--muted);font-size:12px">Maç bulunamadı.</div>';
+  }
+  con.innerHTML = html;
+}
+
+function teamDisplay(teamId) {
+  const t = tournamentTeams[teamId];
+  return t ? `${t.flag} ${t.name}` : teamId;
+}
+
+// Market satırlarına takım bayrağı ekle
+function getPlayerTeamBadge(playerId) {
+  const info = PLAYER_TEAM_MAP[playerId];
+  if (!info) return '';
+  return `<span title="${info.team}" style="font-size:11px">${info.flag}</span>`;
+}
+
 // ── Boot ───────────────────────────────────────────────────────────────────────
 (async () => {
   // Restore userId
@@ -1275,6 +1613,39 @@ function fmt(ts) {
   if (userId) await loadWallet();
 })();
 </script>
+
+<!-- ── Tournament Drawer ─────────────────────────────────────────── -->
+<div id="tournament-drawer">
+  <div id="tournament-drawer-header">
+    🏆 WC2026 Turnuva
+    <span id="tournament-phase-badge">YÜKLENİYOR</span>
+    <button id="tournament-close" onclick="closeTournament()">✕</button>
+  </div>
+  <div id="group-tab-bar">
+    <span class="gtab active" data-g="A" onclick="selectGroup('A',this)">A</span>
+    <span class="gtab" data-g="B" onclick="selectGroup('B',this)">B</span>
+    <span class="gtab" data-g="C" onclick="selectGroup('C',this)">C</span>
+    <span class="gtab" data-g="D" onclick="selectGroup('D',this)">D</span>
+    <span class="gtab" data-g="E" onclick="selectGroup('E',this)">E</span>
+    <span class="gtab" data-g="F" onclick="selectGroup('F',this)">F</span>
+    <span class="gtab" data-g="G" onclick="selectGroup('G',this)">G</span>
+    <span class="gtab" data-g="H" onclick="selectGroup('H',this)">H</span>
+    <span class="gtab" data-g="I" onclick="selectGroup('I',this)">I</span>
+    <span class="gtab" data-g="J" onclick="selectGroup('J',this)">J</span>
+    <span class="gtab" data-g="K" onclick="selectGroup('K',this)">K</span>
+    <span class="gtab" data-g="L" onclick="selectGroup('L',this)">L</span>
+  </div>
+  <div id="tournament-body">
+    <div id="standings-container">
+      <div style="padding:20px;color:var(--muted);text-align:center">Yükleniyor...</div>
+    </div>
+    <div id="upcoming-section">
+      <div class="sch-header">YAKLAŞAN / SON MAÇLAR</div>
+      <div id="schedule-container"></div>
+    </div>
+  </div>
+</div>
+<div id="tournament-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:4999" onclick="closeTournament()"></div>
 
 <!-- ── Oyuncu Detay Modal ────────────────────────────────────────── -->
 <div id="player-modal-overlay">
