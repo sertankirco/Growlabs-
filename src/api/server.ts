@@ -17,6 +17,7 @@ import { json }                  from './HttpRouter';
 import { PgPool, parseDatabaseUrl } from '../db/PgPool';
 import { migrate }               from '../db/migrate';
 import { LiveMatchOrchestrator } from '../match/LiveMatchOrchestrator';
+import { PgSubscriber }          from '../db/PgSubscriber';
 
 // Startup'ta bir kez oku — route istekte tekrar okumaz
 const UI_HTML = readFileSync(join(__dirname, '../../public/index.html'), 'utf8');
@@ -32,19 +33,28 @@ const DB_URL = process.env.DATABASE_URL;
 // Her iki durumda da handlers aynı UnifiedContext arayüzünü kullanır.
 
 let unified: UnifiedContext;
+let pgWireCallback: ((ws: WsServer) => void) | undefined;
 
 if (DB_URL) {
   // ── PostgreSQL modu ───────────────────────────────────────────────────────────
   console.log('🐘  DATABASE_URL algılandı — PostgreSQL modunda başlatılıyor...');
-  const pool  = new PgPool(parseDatabaseUrl(DB_URL), 10);
+  const dbCfg = parseDatabaseUrl(DB_URL);
+  const pool  = new PgPool(dbCfg, 10);
   const pgCtx = createPgContext(pool);
 
-  migrate(pool)
-    .then(() => registerPgPlayers(pgCtx, WORLD_CUP_PLAYERS.map(p => ({ player: p, basePrice: p.marketPrice }))))
-    .then(() => console.log(`✓ PostgreSQL hazır — ${WORLD_CUP_PLAYERS.length} oyuncu yüklendi`))
-    .catch(err => { console.error('PostgreSQL başlatma hatası:', err.message); process.exit(1); });
-
   unified = pgToUnifiedContext(pgCtx, pgCtx.pipeline as any);
+
+  pgWireCallback = (ws: WsServer) => {
+    const subscriber = new PgSubscriber();
+    migrate(pool)
+      .then(() => registerPgPlayers(pgCtx, WORLD_CUP_PLAYERS.map(p => ({ player: p, basePrice: p.marketPrice }))))
+      .then(() => subscriber.start(dbCfg, ['wc2026_events']))
+      .then(() => {
+        ws.wirePgSubscriber(subscriber);
+        console.log(`✓ PostgreSQL hazır — ${WORLD_CUP_PLAYERS.length} oyuncu yüklendi`);
+      })
+      .catch(err => { console.error('PostgreSQL başlatma hatası:', err.message); process.exit(1); });
+  };
 } else {
   // ── In-memory modu ────────────────────────────────────────────────────────────
   const ctx = createGameContext();
@@ -53,11 +63,19 @@ if (DB_URL) {
 }
 
 const router       = new HttpRouter();
-const wsServer     = new WsServer(unified.pipeline as any);
+const wsServer     = new WsServer(unified);
 const orchestrator = new LiveMatchOrchestrator(unified.pipeline);
 const h            = buildHandlers(unified);
 
 wsServer.wireOrchestrator(orchestrator);
+
+// In-memory: pipeline olaylarını doğrudan bağla
+// Pg modu: migrate tamamlandıktan sonra PgSubscriber üzerinden cross-process fan-out
+if (pgWireCallback) {
+  pgWireCallback(wsServer);
+} else {
+  wsServer.wireEventPipeline();
+}
 
 // ── Feed katmanı ──────────────────────────────────────────────────────────────
 

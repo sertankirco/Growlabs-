@@ -4,6 +4,7 @@ import { randomUUID }   from 'crypto';
 import { PgWalletEngine }  from './PgWalletEngine';
 import { PgSquadManager }  from './PgSquadManager';
 import { PgMarketEngine }  from './PgMarketEngine';
+import { PgPool }          from './PgPool';
 import { PerformanceCalculator } from '../events/PerformanceCalculator';
 import { MatchEvent, DispatchResult, MatchState } from '../events/types';
 import { UserId } from '../wallet/types';
@@ -28,6 +29,7 @@ export class PgEventPipeline extends EventEmitter {
     private readonly wallet:  PgWalletEngine,
     private readonly squad:   PgSquadManager,
     private readonly market:  PgMarketEngine,
+    private readonly pool?:   PgPool,   // varsa NOTIFY gönderilir
   ) {
     super();
   }
@@ -80,7 +82,7 @@ export class PgEventPipeline extends EventEmitter {
       durationMs:     Date.now() - t0,
     };
 
-    this.emit('match_event', {
+    const fanoutPayload = {
       matchId:        event.matchId,
       event,
       reward,
@@ -88,7 +90,18 @@ export class PgEventPipeline extends EventEmitter {
       newMarketPrice: newPrice,
       oldPrice:       newPrice,
       playerName:     this.playerNames.get(event.playerId) ?? event.playerId,
-    });
+    };
+
+    // In-process fan-out (in-memory WsServer için)
+    this.emit('match_event', fanoutPayload);
+
+    // Cross-process fan-out: tüm LISTEN bağlantılarına bildir
+    if (this.pool) {
+      this.pool.query(
+        `SELECT pg_notify('wc2026_events', $1)`,
+        [JSON.stringify(fanoutPayload)],
+      ).catch(() => { /* NOTIFY başarısız olursa in-process emit yeterli */ });
+    }
 
     return result;
   }

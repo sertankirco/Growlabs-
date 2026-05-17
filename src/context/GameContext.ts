@@ -81,7 +81,7 @@ export function createPgContext(pool: PgPool): PgGameContext {
   const squad    = new PgSquadManager(pool);
   const market   = new PgMarketEngine(pool);
   const exchange = new PgExchangeEngine(wallet, squad, market);
-  const pipeline = new PgEventPipeline(wallet, squad, market);
+  const pipeline = new PgEventPipeline(wallet, squad, market, pool);
   return { wallet, squad, exchange, market, pipeline, pool };
 }
 

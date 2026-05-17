@@ -43,6 +43,7 @@ export class PgClient {
   private waiters: Array<(msg: Buffer) => void> = [];
   private user     = '';
   private closed   = false;
+  private notifyHandler?: (channel: string, payload: string) => void;
 
   // ── Bağlan ────────────────────────────────────────────────────────────────────
 
@@ -83,6 +84,11 @@ export class PgClient {
     await this.doAuth(cfg.password ?? '');
   }
 
+  // LISTEN modunda gelen NotificationResponse çerçevelerini işler
+  setNotifyHandler(fn: (channel: string, payload: string) => void): void {
+    this.notifyHandler = fn;
+  }
+
   // ── Çerçeve gönder ────────────────────────────────────────────────────────────
 
   private send(type: string, body: Buffer): void {
@@ -102,12 +108,27 @@ export class PgClient {
       if (this.buf.length < total) break;
       const msg = Buffer.from(this.buf.subarray(0, total));
       this.buf  = this.buf.subarray(total);
-      if (this.waiters.length > 0) {
+
+      // 'A' (0x41) = NotificationResponse — asenkron, query döngüsünün dışında
+      if (msg[0] === 0x41 && this.notifyHandler) {
+        this.parseAndDispatchNotify(msg);
+      } else if (this.waiters.length > 0) {
         this.waiters.shift()!(msg);
       } else {
         this.queue.push(msg);
       }
     }
+  }
+
+  // NotificationResponse: pid(4) + channel\0 + payload\0
+  private parseAndDispatchNotify(msg: Buffer): void {
+    const start      = 9;   // 1(type) + 4(len) + 4(pid)
+    const chanEnd    = msg.indexOf(0, start);
+    if (chanEnd === -1) return;
+    const payloadEnd = msg.indexOf(0, chanEnd + 1);
+    const channel    = msg.toString('utf8', start, chanEnd);
+    const payload    = msg.toString('utf8', chanEnd + 1, payloadEnd === -1 ? undefined : payloadEnd);
+    try { this.notifyHandler!(channel, payload); } catch { /* handler hatası WS bağlantısını kesmemeli */ }
   }
 
   private recv(): Promise<Buffer> {

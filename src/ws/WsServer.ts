@@ -6,6 +6,7 @@ import { ServerMessage, ClientMessage, Channel } from './types';
 import { UnifiedContext } from '../context/UnifiedContext';
 import { LiveMatchOrchestrator } from '../match/LiveMatchOrchestrator';
 import { MatchState } from '../events/types';
+import { PgSubscriber } from '../db/PgSubscriber';
 
 // ── WsServer ──────────────────────────────────────────────────────────────────
 //
@@ -37,7 +38,18 @@ export class WsServer {
       this.handleUpgrade(req, socket, head);
     });
     this.startHeartbeat();
-    this.wireEventPipeline();
+  }
+
+  // In-memory modda çağrılır. Pg modunda wirePgSubscriber() tercih edilir.
+  wireEventPipeline(): void {
+    this.wireMatchEvents(this.ctx.pipeline as any);
+  }
+
+  // PgSubscriber üzerinden cross-process fan-out
+  wirePgSubscriber(subscriber: PgSubscriber): void {
+    subscriber.on('wc2026_events', (data: any) => {
+      this.handleMatchEventFanout(data);
+    });
   }
 
   wireOrchestrator(orchestrator: LiveMatchOrchestrator): void {
@@ -201,68 +213,68 @@ export class WsServer {
     this.connections.delete(conn.id);
   }
 
-  // ── EventPipeline entegrasyonu ────────────────────────────────────────────
+  // ── EventPipeline / PgSubscriber ortak fan-out mantığı ───────────────────────
   //
-  // Pipeline olaylarını dinleyerek abonelere push mesajı gönderir.
-  // Bu sayede REST API, pipeline.dispatch() çağrısı yapar ve WS
-  // katmanı otomatik olarak devreye girer — sıkı bağlantı yok.
+  // wireMatchEvents(): EventEmitter'a (in-memory pipeline) bağlanır
+  // wirePgSubscriber(): PgSubscriber'a (cross-process Pg modu) bağlanır
+  // Her iki durumda da handleMatchEventFanout() aynı iş akışını çalıştırır.
 
-  private wireEventPipeline(): void {
-    const pipeline = this.ctx.pipeline as any;
-    if (typeof pipeline?.on !== 'function') return;
+  private wireMatchEvents(emitter: { on: Function }): void {
+    if (typeof emitter?.on !== 'function') return;
+    emitter.on('match_event', (data: any) => this.handleMatchEventFanout(data));
+  }
 
-    pipeline.on('match_event', (data: {
-      matchId:        string;
-      event:          any;
-      reward:         any;
-      affectedUsers:  string[];
-      newMarketPrice: number;
-      oldPrice:       number;
-      playerName:     string;
-    }) => {
-      // 1. Maç kanalı
-      this.broadcast(`match:${data.matchId}`, {
-        type:      'MATCH_EVENT',
-        matchId:   data.matchId,
-        event:     data.event,
-        reward:    data.reward,
-        timestamp: Date.now(),
-      });
-
-      // 2. Piyasa kanalı
-      const pct = data.oldPrice > 0
-        ? Math.round(((data.newMarketPrice - data.oldPrice) / data.oldPrice) * 10000) / 100
-        : 0;
-
-      this.broadcast('market', {
-        type:      'MARKET_UPDATE',
-        playerId:  data.event.playerId,
-        name:      data.playerName,
-        oldPrice:  data.oldPrice,
-        newPrice:  data.newMarketPrice,
-        changePct: pct,
-        trend:     pct > 0.5 ? 'UP' : pct < -0.5 ? 'DOWN' : 'STABLE',
-        timestamp: Date.now(),
-      });
-
-      // 3. Etkilenen kullanıcılara cüzdan güncellemesi (async — sonuç gelince push)
-      for (const userId of data.affectedUsers) {
-        Promise.all([
-          this.ctx.wallet.getAvailable(userId),
-          this.ctx.wallet.getWallet(userId),
-        ]).then(([available, snap]) => {
-          this.broadcastToUser(userId, {
-            type:      'WALLET_UPDATE',
-            userId,
-            available,
-            balance:   snap.balance,
-            delta:     data.reward.coins,
-            reason:    `${data.event.type}@${data.event.minute}' ${data.event.playerId}`,
-            timestamp: Date.now(),
-          });
-        }).catch(() => { /* kullanıcı yoksa geç */ });
-      }
+  private handleMatchEventFanout(data: {
+    matchId:        string;
+    event:          any;
+    reward:         any;
+    affectedUsers:  string[];
+    newMarketPrice: number;
+    oldPrice:       number;
+    playerName:     string;
+  }): void {
+    // 1. Maç kanalı
+    this.broadcast(`match:${data.matchId}`, {
+      type:      'MATCH_EVENT',
+      matchId:   data.matchId,
+      event:     data.event,
+      reward:    data.reward,
+      timestamp: Date.now(),
     });
+
+    // 2. Piyasa kanalı
+    const pct = data.oldPrice > 0
+      ? Math.round(((data.newMarketPrice - data.oldPrice) / data.oldPrice) * 10000) / 100
+      : 0;
+
+    this.broadcast('market', {
+      type:      'MARKET_UPDATE',
+      playerId:  data.event.playerId,
+      name:      data.playerName,
+      oldPrice:  data.oldPrice,
+      newPrice:  data.newMarketPrice,
+      changePct: pct,
+      trend:     pct > 0.5 ? 'UP' : pct < -0.5 ? 'DOWN' : 'STABLE',
+      timestamp: Date.now(),
+    });
+
+    // 3. Etkilenen kullanıcılara cüzdan güncellemesi
+    for (const userId of (data.affectedUsers ?? [])) {
+      Promise.all([
+        this.ctx.wallet.getAvailable(userId),
+        this.ctx.wallet.getWallet(userId),
+      ]).then(([available, snap]) => {
+        this.broadcastToUser(userId, {
+          type:      'WALLET_UPDATE',
+          userId,
+          available,
+          balance:   snap.balance,
+          delta:     data.reward.coins,
+          reason:    `${data.event.type}@${data.event.minute}' ${data.event.playerId}`,
+          timestamp: Date.now(),
+        });
+      }).catch(() => { /* kullanıcı yoksa geç */ });
+    }
   }
 
   // ── Heartbeat ─────────────────────────────────────────────────────────────
