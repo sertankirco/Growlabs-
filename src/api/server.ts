@@ -12,6 +12,8 @@ import { PlayerRegistry }        from '../feed/PlayerRegistry';
 import { SportradarAdapter }     from '../feed/SportradarAdapter';
 import { OptaAdapter }           from '../feed/OptaAdapter';
 import { WebhookReceiver }       from '../feed/WebhookReceiver';
+import { LiveFeedClient }        from '../feed/LiveFeedClient';
+import { MatchScheduleManager }  from '../feed/MatchScheduleManager';
 import { ProviderId }            from '../feed/types';
 import { json }                  from './HttpRouter';
 import { PgPool, parseDatabaseUrl } from '../db/PgPool';
@@ -94,6 +96,14 @@ if (pgWireCallback) {
 }
 
 // ── Feed katmanı ──────────────────────────────────────────────────────────────
+//
+// Aktif veri çekme (LiveFeedClient):
+//   SR_PUSH_URL   → SSE stream modu (tercihli)
+//   SR_API_KEY + SR_API_BASE_URL → REST polling modu
+//   İkisi de yoksa → simülasyon modu (gerçek maç verisi çekilmez)
+//
+// Takvim yönetimi (MatchScheduleManager):
+//   SR_TOURNAMENT_ID → WC2026 fikstürünü çeker, kickoff zamanlayıcıları kurar
 
 const registry    = new PlayerRegistry();
 const srAdapter   = new SportradarAdapter(registry);
@@ -101,6 +111,28 @@ const optaAdapter = new OptaAdapter(registry);
 const webhook     = new WebhookReceiver(unified.pipeline as any);
 webhook.register(srAdapter);
 webhook.register(optaAdapter);
+
+const liveFeedClient = new LiveFeedClient(srAdapter, {
+  pushStreamUrl:  process.env.SR_PUSH_URL,
+  restBaseUrl:    process.env.SR_API_BASE_URL,
+  apiKey:         process.env.SR_API_KEY,
+  pollIntervalMs: Number(process.env.SR_POLL_INTERVAL_MS ?? 10_000),
+});
+
+const scheduleManager = new MatchScheduleManager(unified.pipeline as any, {
+  apiBaseUrl:    process.env.SR_API_BASE_URL,
+  apiKey:        process.env.SR_API_KEY,
+  tournamentId:  process.env.SR_TOURNAMENT_ID ?? 'sr:tournament:40',
+  feedClient:    liveFeedClient,
+});
+
+// ScheduleManager'daki gerçek maç kickoff'larını orchestrator ile birleştir
+scheduleManager.on('kickoff', (match) => {
+  try {
+    const matchId = orchestrator.startSimulation('random', 1, match.matchId);
+    console.log(`[Feed] Gerçek maç kickoff: ${match.homeTeam} - ${match.awayTeam} (${matchId})`);
+  } catch { /* zaten çalışıyor olabilir */ }
+});
 
 // ── Route Tanımları ───────────────────────────────────────────────────────────
 
@@ -213,6 +245,29 @@ router.post('/feed/replay/:scenario', ({ res, params }) => {
 
 router.get('/feed/players', ({ res }) => {
   json(res, 200, { players: registry.getAll() });
+});
+
+router.get('/feed/schedule', ({ res }) => {
+  json(res, 200, {
+    configured: scheduleManager.isConfigured,
+    matches:    scheduleManager.getSchedule(),
+    upcoming:   scheduleManager.getUpcoming(24 * 60 * 60_000),  // sonraki 24 saatte
+    timestamp:  new Date().toISOString(),
+  });
+});
+
+router.get('/feed/status', ({ res }) => {
+  json(res, 200, {
+    liveFeed: {
+      configured:    liveFeedClient.isConfigured,
+      activeMatches: liveFeedClient.getActiveMatchIds(),
+    },
+    schedule: {
+      configured: scheduleManager.isConfigured,
+      total:      scheduleManager.getSchedule().length,
+    },
+    timestamp: new Date().toISOString(),
+  });
 });
 
 // ── Admin API ────────────────────────────────────────────────────────────────
@@ -366,6 +421,17 @@ server.listen(PORT, () => {
 
   // Sunucu hazır olunca otomatik maç döngüsü başlat
   autoMatchLoop();
+
+  // WC2026 fikstür takvimini başlat (API key yoksa sessiz kalır)
+  scheduleManager.start().catch(e =>
+    console.error('[ScheduleMgr] Başlatma hatası:', (e as Error).message),
+  );
+
+  if (liveFeedClient.isConfigured) {
+    console.log('📡  LiveFeedClient: aktif (Sportradar SSE/REST modu)');
+  } else {
+    console.log('📡  LiveFeedClient: simülasyon modu (SR_API_KEY ayarlanmamış)');
+  }
 });
 
 // Her maç ~30 saniye (speed=3), ardından 15 saniye ara (MATCH_UPCOMING duyurusu), yeni maç.
@@ -439,6 +505,10 @@ async function gracefulShutdown(signal: string): Promise<void> {
 
   // WS bağlantılarını kapat
   wsServer.close();
+
+  // Feed katmanı kapat
+  liveFeedClient.destroy();
+  scheduleManager.destroy();
 
   // Rate limiter zamanlayıcılarını kapat
   apiRl.destroy();

@@ -1,6 +1,7 @@
 import { IncomingMessage, ServerResponse } from 'http';
 import { IFeedAdapter, WebhookMeta, ProviderId } from './types';
 import { EventPipeline }  from '../events/EventPipeline';
+import { EventRetryQueue } from './EventRetryQueue';
 import { json }           from '../api/HttpRouter';
 
 // ── Rate Limiter (provider başına) ────────────────────────────────────────────
@@ -65,8 +66,12 @@ export class WebhookReceiver {
   private readonly adapters    = new Map<ProviderId, IFeedAdapter>();
   private readonly rateLimiter = new RateLimiter();
   private readonly idempotency = new IdempotencyStore();
+  private readonly retryQueue: EventRetryQueue;
 
-  constructor(private readonly pipeline: EventPipeline) {}
+  constructor(private readonly pipeline: EventPipeline) {
+    this.retryQueue = new EventRetryQueue(pipeline);
+    this.retryQueue.start();
+  }
 
   // ── Adapter kaydı ─────────────────────────────────────────────────────────
 
@@ -130,8 +135,10 @@ export class WebhookReceiver {
         await this.pipeline.dispatch(ev);
         ingested++;
       } catch (err) {
-        // Tek bir event hatası tüm batch'i durdurmasın
-        console.error(`[WebhookReceiver] dispatch hatası: ${(err as Error).message}`);
+        // Dispatch başarısız → retry kuyruğuna al, batch durmasın
+        const msg = (err as Error).message;
+        console.error(`[WebhookReceiver] dispatch hatası: ${msg}`);
+        this.retryQueue.enqueue(ev, msg);
       }
     }
 

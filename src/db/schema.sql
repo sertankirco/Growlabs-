@@ -85,6 +85,23 @@ CREATE TABLE IF NOT EXISTS perf_events (
 );
 CREATE INDEX IF NOT EXISTS idx_perf_player ON perf_events(player_id, id DESC);
 
+-- ── Feed event tekrar girişi önleme (cross-process idempotency) ──────────────
+--
+-- WebhookReceiver'ın in-memory IdempotencyStore'u yeniden başlatmada sıfırlanır.
+-- Bu tablo, farklı sunucu süreçlerinden gelen aynı provider event'inin iki kez
+-- işlenmesini engeller.  INSERT ON CONFLICT DO NOTHING kullanılır.
+
+CREATE TABLE IF NOT EXISTS ingested_events (
+  event_id    TEXT        PRIMARY KEY,
+  match_id    TEXT        NOT NULL,
+  provider    TEXT        NOT NULL,
+  ingested_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- 7 günden eski kayıtları pg_cron veya uygulama katmanı temizler
+CREATE INDEX IF NOT EXISTS idx_ingested_events_match ON ingested_events(match_id);
+CREATE INDEX IF NOT EXISTS idx_ingested_events_time  ON ingested_events(ingested_at);
+
 -- Son TRANSACTION_WINDOW (20) alım/satım — talep baskısı için kayan pencere
 CREATE TABLE IF NOT EXISTS demand_events (
   id         BIGSERIAL PRIMARY KEY,
