@@ -661,6 +661,70 @@
   .sch-fin   { color: var(--green); font-size: 11px; font-weight: 700; }
   .sch-live  { color: var(--red); font-size: 11px; font-weight: 700; animation: pulse 1s infinite; }
   @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+
+  /* ── Stats Drawer ───────────────────────────────────────── */
+  #stats-btn {
+    background: var(--blue); color: #000; border: none; border-radius: 6px;
+    padding: 4px 10px; font-size: 12px; font-weight: 700; cursor: pointer;
+  }
+  #stats-overlay {
+    display: none; position: fixed; inset: 0; background: rgba(0,0,0,.5); z-index: 199;
+  }
+  #stats-drawer {
+    position: fixed; top: 0; right: -480px; width: 460px; max-width: 100vw;
+    height: 100vh; background: var(--bg); border-left: 1px solid var(--border);
+    z-index: 200; transition: right .3s ease; overflow-y: auto; display: flex;
+    flex-direction: column;
+  }
+  #stats-drawer.open { right: 0; }
+  @media (max-width: 768px) { #stats-drawer { width: 100vw; right: -100vw; } }
+  #stats-drawer-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 14px 16px; border-bottom: 1px solid var(--border);
+    font-weight: 700; font-size: 14px; position: sticky; top: 0;
+    background: var(--bg); z-index: 1;
+  }
+  #stats-close {
+    background: none; border: none; color: var(--muted); font-size: 20px;
+    cursor: pointer; line-height: 1;
+  }
+  .stats-tab-bar {
+    display: flex; gap: 4px; padding: 10px 12px;
+    border-bottom: 1px solid var(--border); background: var(--surface);
+    flex-shrink: 0;
+  }
+  .stab {
+    padding: 4px 12px; border-radius: 12px; font-size: 11px; font-weight: 600;
+    cursor: pointer; color: var(--muted); background: var(--border);
+    border: none; transition: background .15s, color .15s;
+  }
+  .stab.active { background: var(--blue); color: #000; }
+  #stats-body { flex: 1; overflow-y: auto; }
+  .stats-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  .stats-table thead th {
+    padding: 6px 10px; text-align: left; font-size: 10px; color: var(--muted);
+    border-bottom: 1px solid var(--border); background: var(--surface);
+    position: sticky; top: 0; font-weight: 600; letter-spacing: .4px;
+    text-transform: uppercase;
+  }
+  .stats-table tbody tr { border-bottom: 1px solid var(--border); }
+  .stats-table tbody tr:last-child { border-bottom: none; }
+  .stats-table tbody td { padding: 7px 10px; }
+  .stats-rank { width: 28px; color: var(--muted); font-size: 11px; }
+  .stats-rank.rk1 { color: #ffd700; font-weight: 700; }
+  .stats-rank.rk2 { color: #c0c0c0; font-weight: 700; }
+  .stats-rank.rk3 { color: #cd7f32; font-weight: 700; }
+  .stats-name { font-weight: 600; }
+  .stats-pos  { font-size: 10px; color: var(--muted); margin-left: 4px; }
+  .stats-val  { text-align: right; font-weight: 700; color: var(--blue); }
+  .stats-sub  { text-align: right; color: var(--muted); font-size: 11px; }
+  #stats-summary {
+    display: flex; gap: 12px; padding: 10px 14px;
+    border-bottom: 1px solid var(--border); background: var(--surface);
+    flex-wrap: wrap;
+  }
+  .stat-pill { font-size: 11px; color: var(--muted); }
+  .stat-pill strong { color: var(--text); }
 </style>
 </head>
 <body>
@@ -675,6 +739,7 @@
   <span id="online-count"></span>
 
   <button id="tournament-btn" onclick="openTournament()">🏆 Turnuva</button>
+  <button id="stats-btn"      onclick="openStats()">📊 İstatistikler</button>
   <div id="user-area">
     <input type="text" id="user-input" placeholder="userId (örn: sertan)" maxlength="32">
     <button onclick="loginOrCreate()">Giriş / Kayıt</button>
@@ -691,6 +756,7 @@
   <span class="tab"        onclick="showTab('trade-panel',   this)">🔄 Al/Sat</span>
   <span class="tab"        onclick="showTab('admin-panel',   this)">⚙️ Admin</span>
   <span class="tab"        onclick="openTournament()">🏆 Turnuva</span>
+  <span class="tab"        onclick="openStats()">📊 İstat</span>
 </div>
 
 <!-- ── Main Grid ───────────────────────────────────────── -->
@@ -850,6 +916,7 @@ function connect() {
     ws.send(JSON.stringify({ type: 'SUBSCRIBE', channel: 'market' }));
     ws.send(JSON.stringify({ type: 'SUBSCRIBE', channel: 'leaderboard' }));
     ws.send(JSON.stringify({ type: 'SUBSCRIBE', channel: 'tournament' }));
+    ws.send(JSON.stringify({ type: 'SUBSCRIBE', channel: 'stats' }));
     if (userId) subscribeWallet();
   };
 
@@ -874,6 +941,7 @@ function connect() {
       case 'TRANSFER_WINDOW':     return onTransferWindow(msg);
       case 'TOURNAMENT_UPDATE':   return onTournamentUpdate(msg);
       case 'CHAMPION':            return onChampion(msg);
+      case 'STATS_UPDATE':        return onStatsUpdate(msg);
     }
   };
 }
@@ -1379,6 +1447,129 @@ function onChampion(msg) {
   showToast(`🏆 Dünya Kupası Şampiyonu: ${flag} ${name}`, 'gain');
 }
 
+// ── Stats ─────────────────────────────────────────────────────────────────────
+let statsData    = { scorers: [], assisters: [], cleanSheets: [], earners: [] };
+let activeStatsTab = 'scorers';
+
+// WS subscribe
+ws && ws.readyState === 1 && ws.send(JSON.stringify({ type: 'SUBSCRIBE', channel: 'stats' }));
+
+function onStatsUpdate(msg) {
+  if (msg.scorers)   statsData.scorers   = msg.scorers;
+  if (msg.assisters) statsData.assisters = msg.assisters;
+  if (msg.summary) updateStatsSummary(msg.summary);
+  if (document.getElementById('stats-drawer').classList.contains('open')) {
+    renderStatsTable(activeStatsTab);
+  }
+}
+
+function updateStatsSummary(summary) {
+  if (!summary) return;
+  const g = document.getElementById('sum-goals');
+  const a = document.getElementById('sum-assists');
+  const m = document.getElementById('sum-matches');
+  const p = document.getElementById('sum-players');
+  if (g) g.textContent = summary.totalGoals   ?? 0;
+  if (a) a.textContent = summary.totalAssists ?? 0;
+  if (m) m.textContent = summary.totalMatches ?? 0;
+  if (p) p.textContent = summary.trackedPlayers ?? 0;
+}
+
+async function openStats() {
+  document.getElementById('stats-drawer').classList.add('open');
+  document.getElementById('stats-overlay').style.display = 'block';
+  await refreshStats();
+}
+
+function closeStats() {
+  document.getElementById('stats-drawer').classList.remove('open');
+  document.getElementById('stats-overlay').style.display = 'none';
+}
+
+function selectStatsTab(tab, el) {
+  activeStatsTab = tab;
+  document.querySelectorAll('.stab').forEach(t => t.classList.remove('active'));
+  el.classList.add('active');
+  renderStatsTable(tab);
+}
+
+async function refreshStats() {
+  try {
+    const r = await fetch('/stats');
+    const d = await r.json();
+    statsData.scorers    = d.scorers    || [];
+    statsData.assisters  = d.assisters  || [];
+    statsData.cleanSheets = d.cleanSheets || [];
+    statsData.earners    = d.earners    || [];
+    updateStatsSummary(d.summary);
+    renderStatsTable(activeStatsTab);
+  } catch {}
+}
+
+function renderStatsTable(tab) {
+  const body = document.getElementById('stats-body');
+  let rows, cols, title;
+
+  switch (tab) {
+    case 'scorers':
+      rows  = statsData.scorers || [];
+      cols  = [['Oyuncu','name'],['Maç','matchesPlayed'],['Gol','goals'],['Asist','assists'],['Kart','yellowCards']];
+      title = '⚽ Gol Kralları';
+      break;
+    case 'assisters':
+      rows  = statsData.assisters || [];
+      cols  = [['Oyuncu','name'],['Maç','matchesPlayed'],['Asist','assists'],['Gol','goals']];
+      title = '🎯 Asist Sıralaması';
+      break;
+    case 'cleansheets':
+      rows  = statsData.cleanSheets || [];
+      cols  = [['Oyuncu','name'],['Pos','position'],['Maç','matchesPlayed'],['T. Kale','cleanSheets'],['Kurtarış','saveSeries']];
+      title = '🧤 Temiz Kale';
+      break;
+    case 'earners':
+      rows  = statsData.earners || [];
+      cols  = [['Oyuncu','name'],['Pos','position'],['Maç','matchesPlayed'],['Toplam ₡','totalCoins'],['Gol','goals']];
+      title = '💰 En Çok Kazanan';
+      break;
+    default: return;
+  }
+
+  if (!rows.length) {
+    body.innerHTML = '<div style="padding:24px;text-align:center;color:var(--muted)">Henüz veri yok — maçlar başladıkça tablolar dolacak.</div>';
+    return;
+  }
+
+  const rankCls = ['rk1','rk2','rk3'];
+  let html = `<table class="stats-table"><thead><tr>
+    <th class="stats-rank">#</th>`;
+  for (const [label] of cols) html += `<th>${label}</th>`;
+  html += `</tr></thead><tbody>`;
+
+  rows.forEach((row, i) => {
+    html += `<tr>
+      <td class="stats-rank ${rankCls[i]||''}">${i+1}</td>`;
+    cols.forEach(([, key], ci) => {
+      if (key === 'name') {
+        html += `<td><span class="stats-name">${row.name}</span></td>`;
+      } else if (key === 'position') {
+        const posLabel = { GK:'🧤', DEF:'🛡️', MID:'⚙️', FWD:'⚽' }[row.position] || row.position;
+        html += `<td><span class="stats-pos">${posLabel}</span></td>`;
+      } else if (key === 'totalCoins') {
+        const sign = row[key] >= 0 ? '+' : '';
+        html += `<td class="stats-val" style="color:${row[key]>=0?'var(--green)':'var(--red)'}">${sign}${row[key]}₡</td>`;
+      } else if (ci === cols.length - 1) {
+        html += `<td class="stats-sub">${row[key] ?? 0}</td>`;
+      } else {
+        html += `<td class="stats-val">${row[key] ?? 0}</td>`;
+      }
+    });
+    html += `</tr>`;
+  });
+
+  html += `</tbody></table>`;
+  body.innerHTML = html;
+}
+
 async function loadWallet() {
   if (!userId || !token) return;
   try {
@@ -1730,6 +1921,28 @@ function getPlayerTeamBadge(playerId) {
   <div id="champion-flag"></div>
   <div id="champion-name">—</div>
   <button id="champion-close" onclick="document.getElementById('champion-banner').classList.remove('show')">Kapat</button>
+</div>
+
+<!-- ── Stats Drawer ──────────────────────────────────────────────── -->
+<div id="stats-overlay" onclick="closeStats()"></div>
+<div id="stats-drawer">
+  <div id="stats-drawer-header">
+    📊 Oyuncu İstatistikleri
+    <button id="stats-close" onclick="closeStats()">✕</button>
+  </div>
+  <div id="stats-summary">
+    <span class="stat-pill">⚽ Gol: <strong id="sum-goals">0</strong></span>
+    <span class="stat-pill">🎯 Asist: <strong id="sum-assists">0</strong></span>
+    <span class="stat-pill">📋 Maç: <strong id="sum-matches">0</strong></span>
+    <span class="stat-pill">👥 Oyuncu: <strong id="sum-players">0</strong></span>
+  </div>
+  <div class="stats-tab-bar">
+    <button class="stab active" onclick="selectStatsTab('scorers',this)">⚽ Gol Kralları</button>
+    <button class="stab" onclick="selectStatsTab('assisters',this)">🎯 Asist Kralları</button>
+    <button class="stab" onclick="selectStatsTab('cleansheets',this)">🧤 Temiz Kale</button>
+    <button class="stab" onclick="selectStatsTab('earners',this)">💰 Kazanç</button>
+  </div>
+  <div id="stats-body"></div>
 </div>
 
 <!-- ── Tournament Drawer ─────────────────────────────────────────── -->

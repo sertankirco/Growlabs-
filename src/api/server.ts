@@ -16,6 +16,7 @@ import { LiveFeedClient }        from '../feed/LiveFeedClient';
 import { MatchScheduleManager }  from '../feed/MatchScheduleManager';
 import { ProviderId }            from '../feed/types';
 import { TournamentEngine }      from '../tournament/TournamentEngine';
+import { PlayerStatsTracker }    from '../stats/PlayerStatsTracker';
 import { WC2026_TEAMS, getMatchPlayerPool } from '../tournament/WC2026Groups';
 import { GroupId }               from '../tournament/types';
 import { json }                  from './HttpRouter';
@@ -89,10 +90,12 @@ const wsServer       = new WsServer(unified);
 const orchestrator   = new LiveMatchOrchestrator(unified.pipeline);
 const tournament     = new TournamentEngine();
 const transferWindow = new TransferWindow();
+const statsTracker   = new PlayerStatsTracker(unified.pipeline);
 const h              = buildHandlers(unified);
 
 wsServer.wireOrchestrator(orchestrator);
 wsServer.wireTournament(tournament);
+wsServer.wireStats(statsTracker);
 
 // Transfer penceresi ↔ maç orchestrator bağlantısı
 orchestrator.on('match_kick_off', ({ matchState }: any) => {
@@ -174,6 +177,7 @@ router.get('/health', ({ res }) => {
     },
     wsConnections: wsServer.getConnectionCount(),
     activeMatches: orchestrator.listActive().length,
+    stats:         statsTracker.getSummary(),
     timestamp:     new Date().toISOString(),
   });
 });
@@ -289,6 +293,54 @@ router.get('/feed/status', ({ res }) => {
       total:      scheduleManager.getSchedule().length,
     },
     timestamp: new Date().toISOString(),
+  });
+});
+
+// ── İstatistik API ───────────────────────────────────────────────────────────
+
+router.get('/stats/scorers', ({ res, query }) => {
+  const limit = Math.min(Number(query['limit'] ?? 10), 50);
+  json(res, 200, { scorers: statsTracker.getScorers(limit), ...statsTracker.getSummary() });
+});
+
+router.get('/stats/assisters', ({ res, query }) => {
+  const limit = Math.min(Number(query['limit'] ?? 10), 50);
+  json(res, 200, { assisters: statsTracker.getAssisters(limit), ...statsTracker.getSummary() });
+});
+
+router.get('/stats/cleansheets', ({ res, query }) => {
+  const limit = Math.min(Number(query['limit'] ?? 10), 50);
+  json(res, 200, { cleanSheets: statsTracker.getCleanSheets(limit), ...statsTracker.getSummary() });
+});
+
+router.get('/stats/earners', ({ res, query }) => {
+  const limit = Math.min(Number(query['limit'] ?? 10), 50);
+  json(res, 200, { earners: statsTracker.getTopEarners(limit), ...statsTracker.getSummary() });
+});
+
+router.get('/stats/players/:playerId', ({ res, params }) => {
+  const s = statsTracker.getPlayer(params.playerId);
+  if (!s) { json(res, 404, { error: 'Oyuncu istatistiği bulunamadı' }); return; }
+  json(res, 200, s);
+});
+
+router.get('/stats', ({ res }) => {
+  json(res, 200, {
+    summary:  statsTracker.getSummary(),
+    scorers:  statsTracker.getScorers(5),
+    assisters: statsTracker.getAssisters(5),
+    cleanSheets: statsTracker.getCleanSheets(5),
+    earners:  statsTracker.getTopEarners(5),
+  });
+});
+
+router.get('/stats/rewards', ({ res }) => {
+  // Kullanıcıya hangi event'in ne kadar kazandırdığını göster
+  const { PerformanceCalculator } = require('../events/PerformanceCalculator');
+  const calc = new PerformanceCalculator();
+  json(res, 200, {
+    rewards: calc.getRewardTable(),
+    note:    'Coin değerleri pozisyona göre değişir. Negatif = ceza.',
   });
 });
 

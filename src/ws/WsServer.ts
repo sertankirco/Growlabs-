@@ -38,6 +38,7 @@ export class WsServer {
   private transferWindowStatus: 'OPEN' | 'CLOSED' = 'OPEN';
   private transferWindowReason?: string;
   private tournamentEngine?: import('../tournament/TournamentEngine').TournamentEngine;
+  private statsTracker?:    import('../stats/PlayerStatsTracker').PlayerStatsTracker;
 
   private readonly playerNames = new Map<string, string>(
     WORLD_CUP_PLAYERS.map(p => [p.id, p.name]),
@@ -102,6 +103,22 @@ export class WsServer {
     });
   }
 
+  wireStats(tracker: import('../stats/PlayerStatsTracker').PlayerStatsTracker): void {
+    this.statsTracker = tracker;
+  }
+
+  // Maç bitince stats kanalına push et (maç içi eventlerde değil — spam önler)
+  pushStats(): void {
+    if (!this.statsTracker) return;
+    this.broadcast('stats', {
+      type:      'STATS_UPDATE',
+      scorers:   this.statsTracker.getScorers(10),
+      assisters: this.statsTracker.getAssisters(10),
+      summary:   this.statsTracker.getSummary(),
+      timestamp: Date.now(),
+    } as any);
+  }
+
   setTransferWindow(status: 'OPEN' | 'CLOSED', reason?: string): void {
     this.transferWindowStatus = status;
     this.transferWindowReason = reason;
@@ -161,8 +178,9 @@ export class WsServer {
         homeScore: matchState.homeScore, awayScore: matchState.awayScore,
         minute: 90, timestamp: Date.now(),
       });
-      // Maç bitince tüm kullanıcılara güncel leaderboard push et
+      // Maç bitince leaderboard + istatistik push et
       this.pushLeaderboard();
+      this.pushStats();
     });
 
     orchestrator.on('match_aborted', ({ matchId }: { matchId: string }) => {
@@ -388,6 +406,16 @@ export class WsServer {
           balance: snap.balance, delta: 0, reason: 'snapshot', timestamp: Date.now(),
         });
       } catch { /* cüzdan henüz oluşturulmamış */ }
+    } else if (channel === 'stats') {
+      if (this.statsTracker) {
+        conn.send({
+          type:      'STATS_UPDATE',
+          scorers:   this.statsTracker.getScorers(10),
+          assisters: this.statsTracker.getAssisters(10),
+          summary:   this.statsTracker.getSummary(),
+          timestamp: Date.now(),
+        } as any);
+      }
     } else if (channel === 'tournament') {
       if (this.tournamentEngine) {
         const snap = this.tournamentEngine.getSnapshot();

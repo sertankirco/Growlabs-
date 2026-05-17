@@ -25,6 +25,7 @@ export type ServerMessage =
   | TransferWindowMsg
   | TournamentUpdateMsg
   | ChampionMsg
+  | StatsUpdateMsg
   | SubscribedMsg
   | ErrorMsg
   | PongMsg;
@@ -147,6 +148,13 @@ export interface TournamentUpdateMsg {
 export interface ChampionMsg {
   type:      'CHAMPION';
   teamId:    string;
+  timestamp: number;
+}
+
+export interface StatsUpdateMsg {
+  type:     'STATS_UPDATE';
+  scorers:  any[];
+  assisters: any[];
   timestamp: number;
 }
 
