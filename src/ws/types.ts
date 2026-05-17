@@ -21,6 +21,7 @@ export type ServerMessage =
   | MatchSnapshotMsg
   | MatchUpcomingMsg
   | LeaderboardUpdateMsg
+  | OnlineCountMsg
   | SubscribedMsg
   | ErrorMsg
   | PongMsg;
@@ -115,6 +116,13 @@ export interface ErrorMsg {
 export interface PongMsg {
   type:      'PONG';
   timestamp: number;
+}
+
+export interface OnlineCountMsg {
+  type:        'ONLINE_COUNT';
+  connections: number;   // toplam WS bağlantısı
+  players:     number;   // token doğrulanmış (cüzdan açık) kullanıcılar
+  timestamp:   number;
 }
 
 // ── İstemci → Sunucu Mesajları ────────────────────────────────────────────────

@@ -51,6 +51,20 @@ export class WsServer {
       this.handleUpgrade(req, socket, head);
     });
     this.startHeartbeat();
+    this.startOnlineBroadcast();
+  }
+
+  private startOnlineBroadcast(): void {
+    const timer = setInterval(() => this.broadcastOnlineCount(), 30_000);
+    timer.unref?.();
+  }
+
+  broadcastOnlineCount(): void {
+    const total  = this.connections.size;
+    const users  = [...this.connections.values()].filter(c => c.userId).length;
+    for (const conn of this.connections.values()) {
+      conn.send({ type: 'ONLINE_COUNT', connections: total, players: users, timestamp: Date.now() });
+    }
   }
 
   // In-memory modda çağrılır. Pg modunda wirePgSubscriber() tercih edilir.
@@ -213,11 +227,23 @@ export class WsServer {
       serverTime:   Date.now(),
       message:      '⚽ World Cup 2026 Exchange — Bağlantı kuruldu',
     });
+
+    // Anlık bağlantı sayısını yeni istemciye bildir
+    setTimeout(() => this.broadcastOnlineCount(), 0);
   }
 
   // ── İstemci mesajı işleme ─────────────────────────────────────────────────
 
   private handleMessage(conn: WsConnection, msg: ClientMessage): void {
+    try {
+      this.handleMessageInner(conn, msg);
+    } catch (err) {
+      console.error('[WsServer] Mesaj işleme hatası:', err);
+      conn.send({ type: 'ERROR', message: 'Sunucu hatası — tekrar deneyin' });
+    }
+  }
+
+  private handleMessageInner(conn: WsConnection, msg: ClientMessage): void {
     switch (msg.type) {
       case 'SUBSCRIBE': {
         // wallet:<userId> kanalı için JWT doğrulaması zorunlu

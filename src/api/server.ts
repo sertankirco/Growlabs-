@@ -20,16 +20,19 @@ import { LiveMatchOrchestrator } from '../match/LiveMatchOrchestrator';
 import { PgSubscriber }          from '../db/PgSubscriber';
 import { RateLimiter }           from './RateLimiter';
 import { Metrics }               from './Metrics';
+import { runLoadTest }           from './LoadTester';
+import { randomUUID }            from 'crypto';
 
 // Startup'ta bir kez oku — route istekte tekrar okumaz
 const UI_HTML = readFileSync(join(__dirname, '../../public/index.html'), 'utf8');
 
-const PORT   = Number(process.env.PORT ?? 3000);
-const DB_URL = process.env.DATABASE_URL;
+const PORT         = Number(process.env.PORT ?? 3000);
+const DB_URL       = process.env.DATABASE_URL;
+const ADMIN_SECRET = process.env.ADMIN_SECRET ?? 'wc2026-admin-change-in-prod';
 
 // Dakikada 120 istek (genel) / 10 istek (auth — brute-force koruması)
-const apiRl  = new RateLimiter(120, 60_000);
-const authRl = new RateLimiter(10,  60_000);
+const apiRl   = new RateLimiter(120, 60_000);
+const authRl  = new RateLimiter(10,  60_000);
 const metrics = new Metrics();
 
 // ── Uygulama Başlatma ─────────────────────────────────────────────────────────
@@ -105,7 +108,32 @@ router.get ('/',        ({ res }) => {
   res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
   res.end(UI_HTML);
 });
-router.get ('/health',                 h.health);
+router.get('/health', ({ res }) => {
+  const mem = process.memoryUsage();
+  json(res, 200, {
+    status:    'ok',
+    mode:      DB_URL ? 'postgres' : 'memory',
+    uptime:    Math.floor(process.uptime()),
+    memory: {
+      heapUsedMb:  Math.round(mem.heapUsed  / 1_048_576),
+      heapTotalMb: Math.round(mem.heapTotal / 1_048_576),
+      rssMb:       Math.round(mem.rss       / 1_048_576),
+    },
+    wsConnections: wsServer.getConnectionCount(),
+    activeMatches: orchestrator.listActive().length,
+    timestamp:     new Date().toISOString(),
+  });
+});
+
+router.get('/ready', async ({ res }) => {
+  if (!pgPoolRef) { json(res, 200, { ready: true, mode: 'memory' }); return; }
+  try {
+    await pgPoolRef.query('SELECT 1');
+    json(res, 200, { ready: true, mode: 'postgres' });
+  } catch (e: unknown) {
+    json(res, 503, { ready: false, error: (e as Error).message });
+  }
+});
 router.get ('/players',                h.listPlayers);
 router.get ('/market',                 h.marketAll);
 router.get ('/market/:playerId',       h.marketPlayer);
@@ -187,6 +215,101 @@ router.get('/feed/players', ({ res }) => {
   json(res, 200, { players: registry.getAll() });
 });
 
+// ── Admin API ────────────────────────────────────────────────────────────────
+//
+// Tüm /admin/* rotaları X-Admin-Secret header'ı gerektirir.
+// Üretimde ADMIN_SECRET env değişkenini güvenli bir değerle set edin.
+
+function adminOnly(handler: import('./HttpRouter').RouteHandler): import('./HttpRouter').RouteHandler {
+  return (ctx) => {
+    if (ctx.req.headers['x-admin-secret'] !== ADMIN_SECRET) {
+      json(ctx.res, 401, { error: 'Admin yetkisi gerekli (X-Admin-Secret)' });
+      return Promise.resolve();
+    }
+    return Promise.resolve(handler(ctx));
+  };
+}
+
+router.get('/admin/stats', adminOnly(async ({ res }) => {
+  const mem = process.memoryUsage();
+  json(res, 200, {
+    uptime:        Math.floor(process.uptime()),
+    mode:          DB_URL ? 'postgres' : 'memory',
+    wsConnections: wsServer.getConnectionCount(),
+    activeMatches: orchestrator.listActive(),
+    metrics: {
+      requests:    metrics.get('http_requests_total'),
+      errors:      metrics.get('http_errors_total'),
+      rateLimited: metrics.get('http_ratelimited_total'),
+    },
+    memory: {
+      heapUsedMb:  Math.round(mem.heapUsed  / 1_048_576),
+      rssMb:       Math.round(mem.rss       / 1_048_576),
+    },
+    timestamp: new Date().toISOString(),
+  });
+}));
+
+router.get('/admin/users', adminOnly(async ({ res, query }) => {
+  const limit  = Math.min(Number(query['limit']  ?? 50), 200);
+  const offset = Math.max(Number(query['offset'] ?? 0),  0);
+  const all    = await unified.wallet.getLeaderboard();
+  json(res, 200, {
+    users:   all.slice(offset, offset + limit),
+    total:   all.length,
+    limit,
+    offset,
+    hasMore: offset + limit < all.length,
+  });
+}));
+
+router.post('/admin/match/force', adminOnly(({ res, body }) => {
+  const { scenario = 'random', speed = 3 } = (body as any) ?? {};
+  try {
+    const matchId = orchestrator.startSimulation(scenario, Number(speed));
+    json(res, 202, { matchId, scenario, speed: Number(speed), wsChannel: `match:${matchId}` });
+  } catch (e: unknown) {
+    json(res, 409, { error: (e as Error).message });
+  }
+}));
+
+router.delete('/admin/match/:matchId', adminOnly(({ res, params }) => {
+  const stopped = orchestrator.stopMatch(params.matchId);
+  json(res, stopped ? 200 : 404, stopped
+    ? { message: 'Maç durduruldu', matchId: params.matchId }
+    : { error: 'Maç bulunamadı' },
+  );
+}));
+
+router.post('/admin/user/:userId/credit', adminOnly(async ({ res, params, body }) => {
+  const { amount, reason = 'admin_credit' } = (body as any) ?? {};
+  if (typeof amount !== 'number' || amount === 0) {
+    json(res, 400, { error: 'amount (number, sıfır dışı) zorunlu' }); return;
+  }
+  try {
+    const type = amount > 0 ? 'PERFORMANCE_EARNINGS' : 'WITHDRAWAL';
+    const tx   = await unified.wallet.credit(
+      params.userId, amount, type as any,
+      `admin:${reason}:${Date.now()}`, randomUUID(),
+    );
+    json(res, 200, { userId: params.userId, amount, tx });
+  } catch (e: unknown) {
+    json(res, 422, { error: (e as Error).message });
+  }
+}));
+
+router.post('/admin/loadtest', adminOnly(async ({ res, body }) => {
+  const { users = 10, durationMs = 5_000 } = (body as any) ?? {};
+  if (users > 200)      { json(res, 400, { error: 'users maks 200' }); return; }
+  if (durationMs > 30_000) { json(res, 400, { error: 'durationMs maks 30000' }); return; }
+  try {
+    const result = await runLoadTest({ users: Number(users), durationMs: Number(durationMs), host: '127.0.0.1', port: PORT });
+    json(res, 200, result);
+  } catch (e: unknown) {
+    json(res, 500, { error: (e as Error).message });
+  }
+}));
+
 // ── HTTP + WebSocket Sunucusu ─────────────────────────────────────────────────
 
 const server = createServer((req, res) => {
@@ -248,34 +371,44 @@ server.listen(PORT, () => {
 // Her maç ~30 saniye (speed=3), ardından 15 saniye ara (MATCH_UPCOMING duyurusu), yeni maç.
 // Kaldırmak için bu fonksiyonu ve çağrısını sil — başka hiçbir şey değişmez.
 async function autoMatchLoop(): Promise<void> {
-  const MATCH_SPEED  = 3;       // 1× = 90sn, 3× ≈ 30sn
-  const BREAK_MS     = 15_000;  // maçlar arası bekleme
+  const MATCH_SPEED = 3;
+  const BREAK_MS    = 15_000;
+  let   backoff     = 1_000;   // hata sonrası yeniden başlama gecikmesi
 
   while (!shuttingDown) {
-    const matchId = orchestrator.startSimulation('random', MATCH_SPEED);
-    console.log(`[AutoMatch] Maç başladı: ${matchId}`);
+    try {
+      const matchId = orchestrator.startSimulation('random', MATCH_SPEED);
+      console.log(`[AutoMatch] Maç başladı: ${matchId}`);
+      backoff = 1_000; // başarılı start → backoff sıfırla
 
-    // Maç bitişini veya iptalini bekle (shutdown sırasında stopMatch → 'match_aborted')
-    await new Promise<void>(resolve => {
-      const onFull = ({ matchState }: any) => {
-        if (matchState?.matchId !== matchId) return;
-        orchestrator.off('match_aborted', onAbort);
-        resolve();
-      };
-      const onAbort = ({ matchId: id }: any) => {
-        if (id !== matchId) return;
-        orchestrator.off('match_full_time', onFull);
-        resolve();
-      };
-      orchestrator.once('match_full_time', onFull);
-      orchestrator.once('match_aborted',   onAbort);
-    });
+      await new Promise<void>(resolve => {
+        const onFull = ({ matchState }: any) => {
+          if (matchState?.matchId !== matchId) return;
+          orchestrator.off('match_aborted', onAbort);
+          resolve();
+        };
+        const onAbort = ({ matchId: id }: any) => {
+          if (id !== matchId) return;
+          orchestrator.off('match_full_time', onFull);
+          resolve();
+        };
+        orchestrator.once('match_full_time', onFull);
+        orchestrator.once('match_aborted',   onAbort);
+      });
 
-    if (shuttingDown) break;
+      if (shuttingDown) break;
 
-    console.log(`[AutoMatch] Maç bitti: ${matchId} — ${BREAK_MS / 1000}sn ara`);
-    orchestrator.announceUpcoming('random', BREAK_MS);
-    await sleep(BREAK_MS);
+      console.log(`[AutoMatch] Maç bitti: ${matchId} — ${BREAK_MS / 1000}sn ara`);
+      orchestrator.announceUpcoming('random', BREAK_MS);
+      await sleep(BREAK_MS);
+
+    } catch (err) {
+      console.error(`[AutoMatch] Hata — ${backoff / 1000}sn sonra yeniden başlıyor:`, err);
+      if (!shuttingDown) {
+        await sleep(backoff);
+        backoff = Math.min(backoff * 2, 30_000); // exponential backoff, maks 30sn
+      }
+    }
   }
 }
 
@@ -326,5 +459,15 @@ const forceExit = () => setTimeout(() => { console.error('[Shutdown] Zaman aşı
 
 process.on('SIGTERM', () => { forceExit().unref(); gracefulShutdown('SIGTERM').catch(() => process.exit(1)); });
 process.on('SIGINT',  () => { forceExit().unref(); gracefulShutdown('SIGINT').catch(() => process.exit(1)); });
+
+// Yakalanmayan hatalar — loglayıp graceful shutdown dene
+process.on('uncaughtException', (err, origin) => {
+  console.error(`[Fatal] ${origin}:`, err);
+  gracefulShutdown('uncaughtException').catch(() => process.exit(1));
+});
+process.on('unhandledRejection', (reason) => {
+  // Çıkış yapmadan sadece logla — birçok promise hatası kurtarılabilir
+  console.error('[Warning] UnhandledRejection:', reason);
+});
 
 export { server, wsServer, unified };

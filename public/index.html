@@ -53,7 +53,30 @@
   }
   .dot.connected { background: var(--green); box-shadow: 0 0 6px var(--green); }
 
-  #ws-label { color: var(--muted); font-size: 11px; }
+  #ws-label    { color: var(--muted); font-size: 11px; }
+  #online-count { color: var(--muted); font-size: 11px; margin-left: 4px; }
+
+  /* Toast bildirimi */
+  #toast-container {
+    position: fixed; bottom: 20px; right: 16px;
+    display: flex; flex-direction: column; gap: 8px;
+    z-index: 9999; pointer-events: none;
+  }
+  .toast {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 14px;
+    font-size: 13px;
+    min-width: 200px;
+    box-shadow: 0 4px 16px rgba(0,0,0,.4);
+    animation: toastIn .3s ease, toastOut .3s ease 2.7s forwards;
+  }
+  .toast.toast-gain { border-left: 3px solid var(--green); }
+  .toast.toast-loss { border-left: 3px solid var(--red); }
+  .toast.toast-info { border-left: 3px solid var(--blue); }
+  @keyframes toastIn  { from { opacity:0; transform:translateY(10px); } to { opacity:1; transform:none; } }
+  @keyframes toastOut { to   { opacity:0; transform:translateY(10px); } }
 
   #user-area {
     display: flex;
@@ -406,7 +429,8 @@
   .tx-row .tx-amt.neg { color: var(--red); }
 
   /* ── Buy/Sell panel ─────────────────────────────────── */
-  #trade-panel { grid-column: 3; grid-row: 2; }
+  #trade-panel  { grid-column: 3; grid-row: 2; }
+  #admin-panel  { grid-column: 1 / -1; grid-row: 3; display: none; }
 
   .trade-form {
     padding: 12px;
@@ -453,10 +477,13 @@
 <body>
 
 <!-- ── Status Bar ──────────────────────────────────────── -->
+<div id="toast-container" id="toast-container"></div>
+
 <div id="status-bar">
   <div class="dot" id="ws-dot"></div>
   <h1>⚽ World Cup 2026 Exchange</h1>
   <span id="ws-label">bağlanıyor...</span>
+  <span id="online-count"></span>
 
   <div id="user-area">
     <input type="text" id="user-input" placeholder="userId (örn: sertan)" maxlength="32">
@@ -472,6 +499,7 @@
   <span class="tab"        onclick="showTab('leaderboard-panel', this)">🏆 Sıralama</span>
   <span class="tab"        onclick="showTab('wallet-panel',  this)">💰 Cüzdan</span>
   <span class="tab"        onclick="showTab('trade-panel',   this)">🔄 Al/Sat</span>
+  <span class="tab"        onclick="showTab('admin-panel',   this)">⚙️ Admin</span>
 </div>
 
 <!-- ── Main Grid ───────────────────────────────────────── -->
@@ -576,6 +604,27 @@
     </div>
   </div>
 
+  <!-- Admin Panel -->
+  <div class="panel" id="admin-panel" style="display:none">
+    <div class="panel-header">⚙️ Admin Paneli</div>
+    <div class="panel-body">
+      <div style="margin-bottom:12px">
+        <label style="display:block;margin-bottom:4px;color:var(--muted);font-size:11px">Admin Şifresi</label>
+        <div style="display:flex;gap:8px">
+          <input type="password" id="admin-secret-input" placeholder="ADMIN_SECRET" style="flex:1">
+          <button onclick="adminFetchStats()">İstatistikler</button>
+        </div>
+      </div>
+      <pre id="admin-stats" style="font-size:11px;color:var(--muted);white-space:pre-wrap;min-height:60px">—</pre>
+      <hr style="border-color:var(--border);margin:12px 0">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+        <button onclick="adminForceMatch()">🚀 Maç Başlat</button>
+        <button onclick="adminLoadTest()" style="background:var(--purple);color:#000">🔥 Yük Testi (10 kullanıcı)</button>
+      </div>
+      <pre id="admin-output" style="font-size:11px;color:var(--muted);margin-top:8px;white-space:pre-wrap;min-height:40px">—</pre>
+    </div>
+  </div>
+
 </div><!-- /grid -->
 
 <script>
@@ -625,6 +674,7 @@ function connect() {
       case 'MATCH_EVENT':      return onMatchEvent(msg);
       case 'WALLET_UPDATE':    return onWalletUpdate(msg);
       case 'LEADERBOARD_UPDATE': return onLeaderboard(msg);
+      case 'ONLINE_COUNT':      return onOnlineCount(msg);
     }
   };
 }
@@ -632,6 +682,21 @@ function connect() {
 function setStatus(ok) {
   document.getElementById('ws-dot').classList.toggle('connected', ok);
   document.getElementById('ws-label').textContent = ok ? 'bağlı' : 'bağlantı yok';
+}
+
+function onOnlineCount(msg) {
+  const el = document.getElementById('online-count');
+  if (el) el.textContent = `· ${msg.connections} bağlı, ${msg.players} oyuncu`;
+}
+
+// ── Toast Bildirimleri ────────────────────────────────────────────────────────
+function showToast(message, type = 'info') {
+  const container = document.getElementById('toast-container');
+  const t = document.createElement('div');
+  t.className = `toast toast-${type}`;
+  t.textContent = message;
+  container.appendChild(t);
+  setTimeout(() => { if (t.parentNode) t.parentNode.removeChild(t); }, 3_200);
 }
 
 function send(obj) {
@@ -847,6 +912,53 @@ document.getElementById('player-modal-overlay').addEventListener('click', functi
   if (e.target === this) closePlayerModal();
 });
 
+// ── Admin Paneli ──────────────────────────────────────────────────────────────
+function adminSecret() {
+  return document.getElementById('admin-secret-input')?.value ?? '';
+}
+
+function adminHeaders() {
+  return { 'Content-Type': 'application/json', 'X-Admin-Secret': adminSecret() };
+}
+
+async function adminFetchStats() {
+  const el = document.getElementById('admin-stats');
+  el.textContent = 'yükleniyor...';
+  try {
+    const r = await fetch(`${API}/admin/stats`, { headers: adminHeaders() });
+    const d = await r.json();
+    if (r.status === 401) { el.textContent = '❌ Geçersiz admin şifresi'; return; }
+    el.textContent = JSON.stringify(d, null, 2);
+  } catch { el.textContent = 'Bağlantı hatası'; }
+}
+
+async function adminForceMatch() {
+  const el = document.getElementById('admin-output');
+  try {
+    const r = await fetch(`${API}/admin/match/force`, { method: 'POST', headers: adminHeaders(), body: JSON.stringify({ scenario: 'random', speed: 3 }) });
+    const d = await r.json();
+    el.textContent = r.ok ? `✅ Maç başlatıldı: ${d.matchId}` : `❌ ${d.error}`;
+  } catch { el.textContent = 'Hata'; }
+}
+
+async function adminLoadTest() {
+  const el = document.getElementById('admin-output');
+  el.textContent = '🔥 Yük testi çalışıyor (5 saniye)...';
+  try {
+    const r = await fetch(`${API}/admin/loadtest`, { method: 'POST', headers: adminHeaders(), body: JSON.stringify({ users: 10, durationMs: 5000 }) });
+    const d = await r.json();
+    if (!r.ok) { el.textContent = `❌ ${d.error}`; return; }
+    el.textContent =
+      `✅ Yük Testi Sonucu\n` +
+      `Toplam istek: ${d.totalRequests}\n` +
+      `Başarılı:     ${d.successCount}\n` +
+      `Hata:         ${d.errorCount}\n` +
+      `Rate limited: ${d.rateLimited}\n` +
+      `P50: ${d.latencyP50Ms}ms  P95: ${d.latencyP95Ms}ms  P99: ${d.latencyP99Ms}ms\n` +
+      `İstek/sn: ${d.reqPerSec}`;
+  } catch { el.textContent = 'Hata'; }
+}
+
 // ── Match upcoming countdown ───────────────────────────────────────────────────
 function onMatchUpcoming(msg) {
   clearCountdown();
@@ -984,6 +1096,13 @@ function onWalletUpdate(msg) {
   if (msg.userId !== userId) return;
   document.getElementById('wallet-balance').textContent   = msg.balance.toLocaleString() + '₡';
   document.getElementById('wallet-available').textContent = msg.available.toLocaleString() + '₡';
+
+  // Coin kazanç/kayıp bildirimi (snapshot mesajları hariç)
+  if (msg.delta !== 0 && msg.reason !== 'snapshot') {
+    const sign = msg.delta > 0 ? '+' : '';
+    const type = msg.delta > 0 ? 'gain' : 'loss';
+    showToast(`${sign}${msg.delta}₡ — ${msg.reason}`, type);
+  }
 
   const list = document.getElementById('tx-list');
   const row  = document.createElement('div');
