@@ -226,6 +226,40 @@
   .down { color: var(--red); }
   .stable { color: var(--muted); }
 
+  /* Sparkline */
+  canvas.sparkline { display:block; cursor:pointer; }
+  #market-body tr  { cursor:pointer; }
+  #market-body tr:hover { background: rgba(88,166,255,.07); }
+
+  /* Player modal */
+  #player-modal-overlay {
+    display: none;
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,.72);
+    z-index: 9000;
+    align-items: center; justify-content: center;
+  }
+  #player-modal-overlay.open { display: flex; }
+  #player-modal {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 20px 24px;
+    min-width: 320px; max-width: 90vw;
+    position: relative;
+  }
+  #player-modal h3   { font-size: 16px; margin-bottom: 4px; }
+  #player-modal .modal-meta  { color: var(--muted); font-size: 12px; margin-bottom: 14px; }
+  #modal-chart      { display: block; border-radius: 4px; margin-bottom: 14px; }
+  #modal-close {
+    position: absolute; top: 10px; right: 14px;
+    background: none; border: none; color: var(--muted);
+    font-size: 18px; cursor: pointer; line-height: 1;
+  }
+  #modal-close:hover { color: var(--text); }
+  .modal-actions { display: flex; gap: 8px; }
+  .modal-actions button { flex: 1; }
+
   .pos-badge {
     display: inline-block;
     font-size: 9px;
@@ -454,6 +488,7 @@
             <th>Pos</th>
             <th style="text-align:right">Fiyat</th>
             <th style="text-align:right">Değişim</th>
+            <th style="text-align:right">Grafik</th>
           </tr>
         </thead>
         <tbody id="market-body"></tbody>
@@ -552,7 +587,8 @@ let userId = localStorage.getItem('wc2026_userId') || '';
 let token  = localStorage.getItem('wc2026_token')  || '';
 let currentMatchId = null;
 let countdownTimer = null;
-let players = {};          // id → { name, position, price, change }
+let players      = {};     // id → { name, position, price, change }
+const priceHistory = {};   // id → number[] (son 40 fiyat)
 let mySquad  = [];
 
 function authHeaders() {
@@ -606,8 +642,9 @@ function send(obj) {
 async function loadMarket() {
   const data = await fetch(`${API}/market`).then(r => r.json());
   for (const p of data.players) {
-    players[p.playerId] = { ...p, price: p.currentPrice, change: 0 };
-    updateMarketRow(p.playerId);
+    players[p.playerId] = { ...p, price: p.currentPrice, change: p.change24h ?? 0 };
+    recordPrice(p.playerId, p.currentPrice);
+    updateMarketRow(p.playerId, p.trend);
   }
 }
 
@@ -639,6 +676,12 @@ async function loadPlayers() {
 }
 
 // ── Market ─────────────────────────────────────────────────────────────────────
+function recordPrice(playerId, price) {
+  if (!priceHistory[playerId]) priceHistory[playerId] = [];
+  priceHistory[playerId].push(price);
+  if (priceHistory[playerId].length > 40) priceHistory[playerId].shift();
+}
+
 function onMarketUpdate(msg) {
   const prev = players[msg.playerId];
   players[msg.playerId] = {
@@ -647,6 +690,7 @@ function onMarketUpdate(msg) {
     price:  msg.newPrice,
     change: msg.changePct,
   };
+  recordPrice(msg.playerId, msg.newPrice);
   updateMarketRow(msg.playerId, msg.trend);
   document.getElementById('market-ts').textContent = fmt(msg.timestamp);
 
@@ -685,7 +729,14 @@ function updateMarketRow(playerId, trend) {
     <td><span class="pos-badge pos-${p.position || ''}">${p.position || ''}</span></td>
     <td style="text-align:right;font-weight:700">${p.price ?? '—'}₡</td>
     <td style="text-align:right" class="${cls}">${arrow} ${Math.abs(chg).toFixed(1)}%</td>
+    <td style="text-align:right;padding-right:8px"><canvas id="sp-${playerId}" class="sparkline" width="62" height="24"></canvas></td>
   `;
+
+  row.onclick = () => openPlayerModal(playerId);
+
+  // Sparkline
+  const cnv = document.getElementById(`sp-${playerId}`);
+  if (cnv) drawSparkline(cnv, priceHistory[playerId] ?? [p.price], cls);
 
   if (trend === 'UP') {
     row.className = 'flash-up';
@@ -695,6 +746,106 @@ function updateMarketRow(playerId, trend) {
     setTimeout(() => { if (row) row.className = ''; }, 700);
   }
 }
+
+// ── Sparkline çizimi ──────────────────────────────────────────────────────────
+function drawSparkline(canvas, prices, cls) {
+  if (!prices || prices.length < 2) return;
+  const ctx2d = canvas.getContext('2d');
+  const W = canvas.width, H = canvas.height;
+  ctx2d.clearRect(0, 0, W, H);
+
+  const min = Math.min(...prices), max = Math.max(...prices);
+  const range = max - min || 1;
+  const color = cls === 'up' ? '#3fb950' : cls === 'down' ? '#f85149' : '#8b949e';
+
+  ctx2d.strokeStyle = color;
+  ctx2d.lineWidth   = 1.5;
+  ctx2d.lineJoin    = 'round';
+  ctx2d.beginPath();
+
+  prices.forEach((v, i) => {
+    const x = (i / (prices.length - 1)) * (W - 2) + 1;
+    const y = H - 2 - ((v - min) / range) * (H - 4);
+    i === 0 ? ctx2d.moveTo(x, y) : ctx2d.lineTo(x, y);
+  });
+
+  ctx2d.stroke();
+
+  // Gradient dolgu
+  const last = prices[prices.length - 1];
+  const ly   = H - 2 - ((last - min) / range) * (H - 4);
+  const grad = ctx2d.createLinearGradient(0, 0, 0, H);
+  grad.addColorStop(0, color + '55');
+  grad.addColorStop(1, color + '00');
+  ctx2d.fillStyle = grad;
+  ctx2d.lineTo(W - 1, H); ctx2d.lineTo(1, H); ctx2d.closePath();
+  ctx2d.fill();
+}
+
+// ── Oyuncu Detay Modal ────────────────────────────────────────────────────────
+let modalPlayerId = null;
+
+async function openPlayerModal(playerId) {
+  modalPlayerId = playerId;
+  const p = players[playerId] || {};
+  document.getElementById('modal-name').textContent = p.name || playerId;
+  const chg = p.change ?? 0;
+  const arrow = chg > 0.5 ? '▲' : chg < -0.5 ? '▼' : '—';
+  const cls   = chg > 0.5 ? 'up' : chg < -0.5 ? 'down' : 'stable';
+  document.getElementById('modal-meta').innerHTML =
+    `<span class="pos-badge pos-${p.position || ''}">${p.position || ''}</span> &nbsp;` +
+    `<strong>${p.price ?? '—'}₡</strong> &nbsp;` +
+    `<span class="${cls}">${arrow} ${Math.abs(chg).toFixed(2)}%</span>`;
+
+  // Fiyat geçmişini sunucudan çek
+  let hist = priceHistory[playerId] ? [...priceHistory[playerId]] : [];
+  try {
+    const r  = await fetch(`/market/${playerId}`);
+    const d  = await r.json();
+    if (d.priceHistory?.length) {
+      const base = d.priceHistory.map(pt => pt.price);
+      // Sunucu geçmişini önce koy, in-memory olanları arkaya ekle
+      const serverLast = base[base.length - 1];
+      const inMemNew   = hist.filter(v => v !== serverLast);
+      hist = [...base, ...inMemNew].slice(-60);
+      // Cache'e kaydet
+      priceHistory[playerId] = hist;
+    }
+  } catch { /* sunucu yoksa in-memory kullan */ }
+
+  const canvas = document.getElementById('modal-chart');
+  drawSparkline(canvas, hist.length >= 2 ? hist : [p.price ?? 0, p.price ?? 0], cls);
+
+  document.getElementById('player-modal-overlay').classList.add('open');
+}
+
+function closePlayerModal() {
+  document.getElementById('player-modal-overlay').classList.remove('open');
+  modalPlayerId = null;
+}
+
+function modalBuy() {
+  if (!modalPlayerId) return;
+  document.getElementById('player-select').value = modalPlayerId;
+  const ev = new Event('change'); document.getElementById('player-select').dispatchEvent(ev);
+  closePlayerModal();
+  // Mobilde wallet tab'ına geç
+  const wTab = document.querySelector('#tab-bar .tab:nth-child(4)');
+  if (wTab) showTab('wallet-panel', wTab);
+}
+
+function modalSell() {
+  if (!modalPlayerId) return;
+  document.getElementById('sell-player-id').value = modalPlayerId;
+  closePlayerModal();
+  const wTab = document.querySelector('#tab-bar .tab:nth-child(4)');
+  if (wTab) showTab('wallet-panel', wTab);
+}
+
+// Modal'ı overlay'e tıklayınca kapat
+document.getElementById('player-modal-overlay').addEventListener('click', function(e) {
+  if (e.target === this) closePlayerModal();
+});
 
 // ── Match upcoming countdown ───────────────────────────────────────────────────
 function onMatchUpcoming(msg) {
@@ -1005,5 +1156,19 @@ function fmt(ts) {
   if (userId) await loadWallet();
 })();
 </script>
+
+<!-- ── Oyuncu Detay Modal ────────────────────────────────────────── -->
+<div id="player-modal-overlay">
+  <div id="player-modal">
+    <button id="modal-close" onclick="closePlayerModal()">✕</button>
+    <h3 id="modal-name">—</h3>
+    <div class="modal-meta" id="modal-meta">—</div>
+    <canvas id="modal-chart" width="320" height="90"></canvas>
+    <div class="modal-actions">
+      <button id="modal-buy-btn"  onclick="modalBuy()"  class="btn-buy">Satın Al</button>
+      <button id="modal-sell-btn" onclick="modalSell()" class="btn-sell">Sat</button>
+    </div>
+  </div>
+</div>
 </body>
 </html>
