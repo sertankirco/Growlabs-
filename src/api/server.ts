@@ -92,6 +92,7 @@ const transferWindow = new TransferWindow();
 const h              = buildHandlers(unified);
 
 wsServer.wireOrchestrator(orchestrator);
+wsServer.wireTournament(tournament);
 
 // Transfer penceresi ↔ maç orchestrator bağlantısı
 orchestrator.on('match_kick_off', ({ matchState }: any) => {

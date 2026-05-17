@@ -489,6 +489,25 @@
 
   .tag { font-size: 10px; color: var(--muted); }
 
+  /* ── Champion Banner ────────────────────────────────── */
+  #champion-banner {
+    display: none;
+    position: fixed; inset: 0; z-index: 9999;
+    background: radial-gradient(ellipse at center, rgba(30,30,45,.97) 0%, rgba(10,10,20,.99) 100%);
+    align-items: center; justify-content: center; flex-direction: column;
+    text-align: center; padding: 40px;
+    animation: bannerFade .5s ease;
+  }
+  #champion-banner.show { display: flex; }
+  @keyframes bannerFade { from { opacity:0; transform:scale(.92); } to { opacity:1; transform:scale(1); } }
+  #champion-trophy { font-size: 96px; animation: trophyBounce 1s ease infinite alternate; }
+  @keyframes trophyBounce { from { transform:translateY(0); } to { transform:translateY(-12px); } }
+  #champion-title { font-size: 13px; letter-spacing: 5px; color: var(--muted); margin: 16px 0 8px; text-transform: uppercase; }
+  #champion-name  { font-size: 38px; font-weight: 900; color: #f8d448; margin-bottom: 8px; }
+  #champion-flag  { font-size: 64px; margin-bottom: 24px; }
+  #champion-close { padding: 10px 32px; background: var(--purple); border: none; border-radius: 8px;
+                    color: #000; font-size: 14px; font-weight: 700; cursor: pointer; }
+
   /* ── Tournament Drawer ──────────────────────────────── */
   #tournament-btn {
     background: var(--purple);
@@ -830,6 +849,7 @@ function connect() {
     setStatus(true);
     ws.send(JSON.stringify({ type: 'SUBSCRIBE', channel: 'market' }));
     ws.send(JSON.stringify({ type: 'SUBSCRIBE', channel: 'leaderboard' }));
+    ws.send(JSON.stringify({ type: 'SUBSCRIBE', channel: 'tournament' }));
     if (userId) subscribeWallet();
   };
 
@@ -852,6 +872,8 @@ function connect() {
       case 'LEADERBOARD_UPDATE':  return onLeaderboard(msg);
       case 'ONLINE_COUNT':        return onOnlineCount(msg);
       case 'TRANSFER_WINDOW':     return onTransferWindow(msg);
+      case 'TOURNAMENT_UPDATE':   return onTournamentUpdate(msg);
+      case 'CHAMPION':            return onChampion(msg);
     }
   };
 }
@@ -1323,6 +1345,40 @@ fetch(`${API}/transfer/window`).then(r => r.json()).then(data => {
   onTransferWindow({ status: data.status, reason: data.closedReason });
 }).catch(() => {});
 
+// ── Tournament WS ─────────────────────────────────────────────────────────────
+function onTournamentUpdate(msg) {
+  // Grup sıralamaları güncellendi
+  if (msg.groups) {
+    tournamentGroups = msg.groups;
+    // Drawer açıksa anında yansıt
+    if (document.getElementById('tournament-drawer').classList.contains('open')) {
+      renderGroupStandings(activeGroup);
+    }
+    // Faz rozetini güncelle
+    const phaseLabels = {
+      'PRE_TOURNAMENT': 'HAZIRLIK',
+      'GROUP_STAGE':    'GRUP AŞAMASI',
+      'KNOCKOUT':       'ELEME',
+      'FINISHED':       '🏆 TAMAMLANDI',
+    };
+    const badge = document.getElementById('tournament-phase-badge');
+    if (badge) badge.textContent = phaseLabels[msg.phase] || msg.phase;
+  }
+}
+
+function onChampion(msg) {
+  // Şampiyon takımı ara (client-side tournamentTeams haritasında)
+  const team = tournamentTeams[msg.teamId];
+  const name = team ? team.name : msg.teamId;
+  const flag = team ? (team.flag || '') : '🏆';
+
+  document.getElementById('champion-name').textContent = name;
+  document.getElementById('champion-flag').textContent = flag;
+  document.getElementById('champion-banner').classList.add('show');
+
+  showToast(`🏆 Dünya Kupası Şampiyonu: ${flag} ${name}`, 'gain');
+}
+
 async function loadWallet() {
   if (!userId || !token) return;
   try {
@@ -1666,6 +1722,15 @@ function getPlayerTeamBadge(playerId) {
   if (userId) await loadWallet();
 })();
 </script>
+
+<!-- ── Champion Banner ───────────────────────────────────────────── -->
+<div id="champion-banner">
+  <div id="champion-trophy">🏆</div>
+  <div id="champion-title">Dünya Kupası Şampiyonu</div>
+  <div id="champion-flag"></div>
+  <div id="champion-name">—</div>
+  <button id="champion-close" onclick="document.getElementById('champion-banner').classList.remove('show')">Kapat</button>
+</div>
 
 <!-- ── Tournament Drawer ─────────────────────────────────────────── -->
 <div id="tournament-drawer">

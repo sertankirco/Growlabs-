@@ -37,6 +37,7 @@ export class WsServer {
 
   private transferWindowStatus: 'OPEN' | 'CLOSED' = 'OPEN';
   private transferWindowReason?: string;
+  private tournamentEngine?: import('../tournament/TournamentEngine').TournamentEngine;
 
   private readonly playerNames = new Map<string, string>(
     WORLD_CUP_PLAYERS.map(p => [p.id, p.name]),
@@ -68,6 +69,37 @@ export class WsServer {
     for (const conn of this.connections.values()) {
       conn.send({ type: 'ONLINE_COUNT', connections: total, players: users, timestamp: Date.now() });
     }
+  }
+
+  wireTournament(tournament: import('../tournament/TournamentEngine').TournamentEngine): void {
+    this.tournamentEngine = tournament;
+
+    // Grup maçı sonucu → sıralama güncellemesi
+    tournament.on('match_result', () => {
+      this.broadcast('tournament', {
+        type:      'TOURNAMENT_UPDATE',
+        phase:     tournament.getPhase(),
+        groups:    tournament.getAllStandings(),
+        timestamp: Date.now(),
+      });
+    });
+
+    // Eleme maçı sonucu → bracket güncellemesi
+    tournament.on('ko_result', () => {
+      this.broadcast('tournament', {
+        type:      'TOURNAMENT_UPDATE',
+        phase:     tournament.getPhase(),
+        bracket:   tournament.getBracket(),
+        timestamp: Date.now(),
+      });
+    });
+
+    // Turnuva tamamlandı → tüm bağlantılara şampiyonu bildir
+    tournament.on('champion', ({ teamId }: { teamId: string }) => {
+      for (const conn of this.connections.values()) {
+        conn.send({ type: 'CHAMPION', teamId, timestamp: Date.now() });
+      }
+    });
   }
 
   setTransferWindow(status: 'OPEN' | 'CLOSED', reason?: string): void {
@@ -356,6 +388,18 @@ export class WsServer {
           balance: snap.balance, delta: 0, reason: 'snapshot', timestamp: Date.now(),
         });
       } catch { /* cüzdan henüz oluşturulmamış */ }
+    } else if (channel === 'tournament') {
+      if (this.tournamentEngine) {
+        const snap = this.tournamentEngine.getSnapshot();
+        conn.send({
+          type:      'TOURNAMENT_UPDATE',
+          phase:     snap.phase,
+          groups:    snap.groups,
+          bracket:   snap.bracket,
+          champion:  snap.champion,
+          timestamp: Date.now(),
+        });
+      }
     }
   }
 

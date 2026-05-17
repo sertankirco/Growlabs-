@@ -23,6 +23,8 @@ export type ServerMessage =
   | LeaderboardUpdateMsg
   | OnlineCountMsg
   | TransferWindowMsg
+  | TournamentUpdateMsg
+  | ChampionMsg
   | SubscribedMsg
   | ErrorMsg
   | PongMsg;
@@ -130,6 +132,21 @@ export interface TransferWindowMsg {
   type:      'TRANSFER_WINDOW';
   status:    'OPEN' | 'CLOSED';
   reason?:   string;
+  timestamp: number;
+}
+
+export interface TournamentUpdateMsg {
+  type:      'TOURNAMENT_UPDATE';
+  phase:     string;
+  groups?:   Record<string, any[]>;
+  bracket?:  any[];
+  champion?: string | null;
+  timestamp: number;
+}
+
+export interface ChampionMsg {
+  type:      'CHAMPION';
+  teamId:    string;
   timestamp: number;
 }
 
