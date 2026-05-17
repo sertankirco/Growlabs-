@@ -466,6 +466,22 @@
   #trade-result.ok  { background: rgba(63,185,80,.15);  color: var(--green); }
   #trade-result.err { background: rgba(248,81,73,.15);  color: var(--red); }
 
+  /* Transfer window */
+  #transfer-window-badge {
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 3px 8px; border-radius: 12px; font-size: 11px; font-weight: 600;
+    margin-left: 8px; transition: background .3s, color .3s;
+  }
+  #transfer-window-badge.open   { background: rgba(63,185,80,.2);  color: var(--green); }
+  #transfer-window-badge.closed { background: rgba(248,81,73,.2);  color: var(--red); }
+  #transfer-window-reason {
+    font-size: 10px; color: var(--muted); margin-top: 4px;
+    min-height: 14px; text-align: center;
+  }
+  .trade-actions button:disabled {
+    opacity: .35; cursor: not-allowed;
+  }
+
   /* ── Scrollbar ──────────────────────────────────────── */
   ::-webkit-scrollbar { width: 4px; }
   ::-webkit-scrollbar-track { background: transparent; }
@@ -729,8 +745,12 @@
 
   <!-- Trade -->
   <div class="panel" id="trade-panel">
-    <div class="panel-header">🔄 Al / Sat</div>
+    <div class="panel-header">
+      🔄 Al / Sat
+      <span id="transfer-window-badge" class="open">🔓 Açık</span>
+    </div>
     <div class="panel-body">
+      <div id="transfer-window-reason"></div>
       <div class="trade-form">
         <div>
           <label>Oyuncu</label>
@@ -748,8 +768,8 @@
           </select>
         </div>
         <div class="trade-actions">
-          <button class="success" onclick="doBuy()">⬆ AL</button>
-          <button class="danger"  onclick="doSell()">⬇ SAT</button>
+          <button id="btn-buy"  class="success" onclick="doBuy()">⬆ AL</button>
+          <button id="btn-sell" class="danger"  onclick="doSell()">⬇ SAT</button>
         </div>
         <div id="trade-result"></div>
         <div style="margin-top:8px">
@@ -829,8 +849,9 @@ function connect() {
       case 'MATCH_STATUS':     return onMatchStatus(msg);
       case 'MATCH_EVENT':      return onMatchEvent(msg);
       case 'WALLET_UPDATE':    return onWalletUpdate(msg);
-      case 'LEADERBOARD_UPDATE': return onLeaderboard(msg);
-      case 'ONLINE_COUNT':      return onOnlineCount(msg);
+      case 'LEADERBOARD_UPDATE':  return onLeaderboard(msg);
+      case 'ONLINE_COUNT':        return onOnlineCount(msg);
+      case 'TRANSFER_WINDOW':     return onTransferWindow(msg);
     }
   };
 }
@@ -1272,6 +1293,36 @@ function onWalletUpdate(msg) {
   while (list.children.length > 20) list.removeChild(list.lastChild);
 }
 
+// ── Transfer Window ────────────────────────────────────────────────────────────
+let transferWindowOpen = true;
+
+function onTransferWindow(msg) {
+  transferWindowOpen = msg.status === 'OPEN';
+  const badge  = document.getElementById('transfer-window-badge');
+  const reason = document.getElementById('transfer-window-reason');
+  const btnBuy  = document.getElementById('btn-buy');
+  const btnSell = document.getElementById('btn-sell');
+
+  if (transferWindowOpen) {
+    badge.textContent = '🔓 Açık';
+    badge.className   = 'open';
+    reason.textContent = '';
+    if (btnBuy)  btnBuy.disabled  = false;
+    if (btnSell) btnSell.disabled = false;
+  } else {
+    badge.textContent = '🔒 Kapalı';
+    badge.className   = 'closed';
+    reason.textContent = msg.reason ?? 'Maç devam ediyor';
+    if (btnBuy)  btnBuy.disabled  = true;
+    if (btnSell) btnSell.disabled = true;
+  }
+}
+
+// Başlangıçta REST ile pencere durumunu çek
+fetch(`${API}/transfer/window`).then(r => r.json()).then(data => {
+  onTransferWindow({ status: data.status, reason: data.closedReason });
+}).catch(() => {});
+
 async function loadWallet() {
   if (!userId || !token) return;
   try {
@@ -1360,6 +1411,7 @@ async function loginOrCreate() {
 // ── Trade ──────────────────────────────────────────────────────────────────────
 async function doBuy() {
   if (!token) { showTradeResult('Önce giriş yap', false); return; }
+  if (!transferWindowOpen) { showTradeResult('Transfer penceresi kapalı — maç devam ediyor', false); return; }
   const playerId = document.getElementById('player-select').value;
   const slot     = document.getElementById('slot-select').value;
 
@@ -1379,6 +1431,7 @@ async function doBuy() {
 
 async function doSell() {
   if (!token) { showTradeResult('Önce giriş yap', false); return; }
+  if (!transferWindowOpen) { showTradeResult('Transfer penceresi kapalı — maç devam ediyor', false); return; }
   const playerId = document.getElementById('player-select').value;
 
   const res = await fetch(`${API}/transfer/sell`, {

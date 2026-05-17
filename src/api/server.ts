@@ -22,6 +22,7 @@ import { json }                  from './HttpRouter';
 import { PgPool, parseDatabaseUrl } from '../db/PgPool';
 import { migrate }               from '../db/migrate';
 import { LiveMatchOrchestrator } from '../match/LiveMatchOrchestrator';
+import { TransferWindow }        from '../transfer/TransferWindow';
 import { PgSubscriber }          from '../db/PgSubscriber';
 import { RateLimiter }           from './RateLimiter';
 import { Metrics }               from './Metrics';
@@ -83,13 +84,28 @@ if (DB_URL) {
   unified = toUnifiedContext(ctx);
 }
 
-const router       = new HttpRouter();
-const wsServer     = new WsServer(unified);
-const orchestrator = new LiveMatchOrchestrator(unified.pipeline);
-const tournament   = new TournamentEngine();
-const h            = buildHandlers(unified);
+const router         = new HttpRouter();
+const wsServer       = new WsServer(unified);
+const orchestrator   = new LiveMatchOrchestrator(unified.pipeline);
+const tournament     = new TournamentEngine();
+const transferWindow = new TransferWindow();
+const h              = buildHandlers(unified);
 
 wsServer.wireOrchestrator(orchestrator);
+
+// Transfer penceresi ↔ maç orchestrator bağlantısı
+orchestrator.on('match_kick_off', ({ matchState }: any) => {
+  transferWindow.close(matchState.matchId, `${matchState.homeTeam} - ${matchState.awayTeam} devam ediyor`);
+  wsServer.setTransferWindow('CLOSED', transferWindow.getSnapshot().closedReason ?? undefined);
+});
+orchestrator.on('match_full_time', ({ matchState }: any) => {
+  transferWindow.open(matchState.matchId);
+  if (transferWindow.getStatus() === 'OPEN') wsServer.setTransferWindow('OPEN');
+});
+orchestrator.on('match_aborted', ({ matchId }: any) => {
+  transferWindow.forceOpen(matchId);
+  if (transferWindow.getStatus() === 'OPEN') wsServer.setTransferWindow('OPEN');
+});
 
 // In-memory: pipeline olaylarını doğrudan bağla
 // Pg modu: migrate tamamlandıktan sonra PgSubscriber üzerinden cross-process fan-out
@@ -179,8 +195,9 @@ router.get ('/wallet/:userId',         requireAuth(h.getWallet));
 router.get ('/wallet/:userId/history', requireAuth(h.walletHistory));
 router.get ('/squad/:userId',          requireAuth(h.getSquad));
 router.get ('/squad/:userId/value',   requireAuth(h.getSquadValue));
-router.post('/transfer/buy',           requireAuth(h.buyPlayer));
-router.post('/transfer/sell',          requireAuth(h.sellPlayer));
+router.get('/transfer/window', ({ res }) => json(res, 200, transferWindow.getSnapshot()));
+router.post('/transfer/buy',  requireAuth(transferWindowGuard(h.buyPlayer)));
+router.post('/transfer/sell', requireAuth(transferWindowGuard(h.sellPlayer)));
 router.post('/match/start',            h.startMatch);
 router.post('/match/event',            h.pushMatchEvent);
 router.post('/match/simulate',         ({ res, body }) => {
@@ -370,6 +387,17 @@ router.post('/admin/tournament/result', adminOnly(({ res, body }) => {
 //
 // Tüm /admin/* rotaları X-Admin-Secret header'ı gerektirir.
 // Üretimde ADMIN_SECRET env değişkenini güvenli bir değerle set edin.
+
+function transferWindowGuard(handler: import('./HttpRouter').RouteHandler): import('./HttpRouter').RouteHandler {
+  return (ctx) => {
+    const check = transferWindow.check();
+    if (!check.allowed) {
+      json(ctx.res, 423, { error: check.reason ?? 'Transfer penceresi kapalı', windowStatus: 'CLOSED' });
+      return Promise.resolve();
+    }
+    return Promise.resolve(handler(ctx));
+  };
+}
 
 function adminOnly(handler: import('./HttpRouter').RouteHandler): import('./HttpRouter').RouteHandler {
   return (ctx) => {

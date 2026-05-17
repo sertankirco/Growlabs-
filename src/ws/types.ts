@@ -22,6 +22,7 @@ export type ServerMessage =
   | MatchUpcomingMsg
   | LeaderboardUpdateMsg
   | OnlineCountMsg
+  | TransferWindowMsg
   | SubscribedMsg
   | ErrorMsg
   | PongMsg;
@@ -123,6 +124,13 @@ export interface OnlineCountMsg {
   connections: number;   // toplam WS bağlantısı
   players:     number;   // token doğrulanmış (cüzdan açık) kullanıcılar
   timestamp:   number;
+}
+
+export interface TransferWindowMsg {
+  type:      'TRANSFER_WINDOW';
+  status:    'OPEN' | 'CLOSED';
+  reason?:   string;
+  timestamp: number;
 }
 
 // ── İstemci → Sunucu Mesajları ────────────────────────────────────────────────

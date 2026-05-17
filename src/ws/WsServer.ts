@@ -35,6 +35,9 @@ export class WsServer {
   private readonly connsByIp      = new Map<string, Set<string>>();  // ip → connId[]
   private heartbeatTimer?: ReturnType<typeof setInterval>;
 
+  private transferWindowStatus: 'OPEN' | 'CLOSED' = 'OPEN';
+  private transferWindowReason?: string;
+
   private readonly playerNames = new Map<string, string>(
     WORLD_CUP_PLAYERS.map(p => [p.id, p.name]),
   );
@@ -65,6 +68,15 @@ export class WsServer {
     for (const conn of this.connections.values()) {
       conn.send({ type: 'ONLINE_COUNT', connections: total, players: users, timestamp: Date.now() });
     }
+  }
+
+  setTransferWindow(status: 'OPEN' | 'CLOSED', reason?: string): void {
+    this.transferWindowStatus = status;
+    this.transferWindowReason = reason;
+    const msg: import('./types').TransferWindowMsg = {
+      type: 'TRANSFER_WINDOW', status, reason, timestamp: Date.now(),
+    };
+    for (const conn of this.connections.values()) conn.send(msg);
   }
 
   // In-memory modda çağrılır. Pg modunda wirePgSubscriber() tercih edilir.
@@ -226,6 +238,14 @@ export class WsServer {
       connectionId: conn.id,
       serverTime:   Date.now(),
       message:      '⚽ World Cup 2026 Exchange — Bağlantı kuruldu',
+    });
+
+    // Yeni bağlantıya transfer penceresi durumunu hemen gönder
+    conn.send({
+      type:      'TRANSFER_WINDOW',
+      status:    this.transferWindowStatus,
+      reason:    this.transferWindowReason,
+      timestamp: Date.now(),
     });
 
     // Anlık bağlantı sayısını yeni istemciye bildir
