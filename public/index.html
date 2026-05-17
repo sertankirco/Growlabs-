@@ -826,7 +826,7 @@ function renderLeaderboard(entries) {
 
 // ── Wallet ─────────────────────────────────────────────────────────────────────
 function subscribeWallet() {
-  send({ type: 'SUBSCRIBE', channel: `wallet:${userId}`, userId });
+  send({ type: 'SUBSCRIBE', channel: `wallet:${userId}`, userId, token });
 }
 
 function onWalletUpdate(msg) {

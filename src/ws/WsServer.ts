@@ -9,6 +9,8 @@ import { MatchState } from '../events/types';
 import { PgSubscriber } from '../db/PgSubscriber';
 import { WORLD_CUP_PLAYERS } from '../mock/MatchSimulator';
 import { TtlCache }          from '../api/TtlCache';
+import { verifyToken }       from '../auth/jwt';
+import { JWT_SECRET }        from '../auth/middleware';
 
 // ── WsServer ──────────────────────────────────────────────────────────────────
 //
@@ -218,12 +220,18 @@ export class WsServer {
   private handleMessage(conn: WsConnection, msg: ClientMessage): void {
     switch (msg.type) {
       case 'SUBSCRIBE': {
-        conn.subscribe(msg.channel);
-        if (msg.channel.startsWith('wallet:') && msg.userId) {
-          conn.userId = msg.userId;
+        // wallet:<userId> kanalı için JWT doğrulaması zorunlu
+        if (msg.channel.startsWith('wallet:')) {
+          const targetId = msg.channel.slice(7);
+          const payload  = msg.token ? verifyToken(msg.token, JWT_SECRET) : null;
+          if (!payload || payload.sub !== targetId) {
+            conn.send({ type: 'ERROR', message: 'wallet kanalı için geçerli token gerekli' });
+            return;
+          }
+          conn.userId = targetId;
         }
+        conn.subscribe(msg.channel);
         conn.send({ type: 'SUBSCRIBED', channel: msg.channel });
-        // Anlık durum snapshot'ı gönder (reconnect desteği)
         this.pushSnapshot(conn, msg.channel).catch(() => {});
         break;
       }

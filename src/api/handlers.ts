@@ -85,8 +85,18 @@ export function buildHandlers(ctx: UnifiedContext) {
   async function walletHistory(ctx2: RouteContext) {
     if (!assertSelf(ctx2, ctx2.params.userId)) return;
     try {
-      const history = await ctx.wallet.getHistory(ctx2.params.userId);
-      json(ctx2.res, 200, { userId: ctx2.params.userId, transactions: history });
+      const limit  = Math.min(Number(ctx2.query?.['limit']  ?? 20), 100);
+      const offset = Math.max(Number(ctx2.query?.['offset'] ?? 0),  0);
+      const all    = await ctx.wallet.getHistory(ctx2.params.userId);
+      const page   = all.slice(offset, offset + limit);
+      json(ctx2.res, 200, {
+        userId:       ctx2.params.userId,
+        transactions: page,
+        total:        all.length,
+        limit,
+        offset,
+        hasMore:      offset + limit < all.length,
+      });
     } catch (e: unknown) {
       json(ctx2.res, 404, { error: (e as Error).message });
     }
@@ -146,7 +156,11 @@ export function buildHandlers(ctx: UnifiedContext) {
   async function buyPlayer(ctx2: RouteContext) {
     const userId = ctx2.authUserId!;
     const { playerId, slot = 'starting', idempotencyKey } = (ctx2.body as any) ?? {};
-    if (!playerId) { json(ctx2.res, 400, { error: 'playerId zorunlu' }); return; }
+    if (!playerId)            { json(ctx2.res, 400, { error: 'playerId zorunlu' }); return; }
+    const VALID_SLOTS = ['starting', 'bench', 'reserve'] as const;
+    if (!VALID_SLOTS.includes(slot)) {
+      json(ctx2.res, 400, { error: `Geçersiz slot — kabul edilenler: ${VALID_SLOTS.join(', ')}` }); return;
+    }
 
     const player = WORLD_CUP_PLAYERS.find(p => p.id === playerId);
     if (!player) { json(ctx2.res, 404, { error: `Oyuncu bulunamadı: ${playerId}` }); return; }

@@ -120,6 +120,6 @@ export interface PongMsg {
 // ── İstemci → Sunucu Mesajları ────────────────────────────────────────────────
 
 export type ClientMessage =
-  | { type: 'SUBSCRIBE';   channel: Channel; userId?: string }
+  | { type: 'SUBSCRIBE';   channel: Channel; userId?: string; token?: string }
   | { type: 'UNSUBSCRIBE'; channel: Channel }
   | { type: 'PING' };
