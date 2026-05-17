@@ -34,6 +34,9 @@ const DB_URL = process.env.DATABASE_URL;
 
 let unified: UnifiedContext;
 let pgWireCallback: ((ws: WsServer) => void) | undefined;
+let pgPoolRef:      PgPool       | undefined;   // shutdown için
+let pgSubRef:       PgSubscriber | undefined;   // shutdown için
+let shuttingDown = false;
 
 if (DB_URL) {
   // ── PostgreSQL modu ───────────────────────────────────────────────────────────
@@ -41,11 +44,13 @@ if (DB_URL) {
   const dbCfg = parseDatabaseUrl(DB_URL);
   const pool  = new PgPool(dbCfg, 10);
   const pgCtx = createPgContext(pool);
+  pgPoolRef   = pool;
 
   unified = pgToUnifiedContext(pgCtx, pgCtx.pipeline as any);
 
   pgWireCallback = (ws: WsServer) => {
     const subscriber = new PgSubscriber();
+    pgSubRef = subscriber;
     migrate(pool)
       .then(() => registerPgPlayers(pgCtx, WORLD_CUP_PLAYERS.map(p => ({ player: p, basePrice: p.marketPrice }))))
       .then(() => subscriber.start(dbCfg, ['wc2026_events']))
@@ -205,21 +210,30 @@ async function autoMatchLoop(): Promise<void> {
   const MATCH_SPEED  = 3;       // 1× = 90sn, 3× ≈ 30sn
   const BREAK_MS     = 15_000;  // maçlar arası bekleme
 
-  while (true) {
+  while (!shuttingDown) {
     const matchId = orchestrator.startSimulation('random', MATCH_SPEED);
     console.log(`[AutoMatch] Maç başladı: ${matchId}`);
 
+    // Maç bitişini veya iptalini bekle (shutdown sırasında stopMatch → 'match_aborted')
     await new Promise<void>(resolve => {
-      orchestrator.once('match_full_time', ({ matchState }) => {
-        if (matchState.matchId === matchId) resolve();
-      });
+      const onFull = ({ matchState }: any) => {
+        if (matchState?.matchId !== matchId) return;
+        orchestrator.off('match_aborted', onAbort);
+        resolve();
+      };
+      const onAbort = ({ matchId: id }: any) => {
+        if (id !== matchId) return;
+        orchestrator.off('match_full_time', onFull);
+        resolve();
+      };
+      orchestrator.once('match_full_time', onFull);
+      orchestrator.once('match_aborted',   onAbort);
     });
 
+    if (shuttingDown) break;
+
     console.log(`[AutoMatch] Maç bitti: ${matchId} — ${BREAK_MS / 1000}sn ara`);
-
-    // Ara sırasında WS bağlı herkese sonraki maçı duyur
     orchestrator.announceUpcoming('random', BREAK_MS);
-
     await sleep(BREAK_MS);
   }
 }
@@ -227,5 +241,39 @@ async function autoMatchLoop(): Promise<void> {
 function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
+
+// ── Graceful Shutdown ─────────────────────────────────────────────────────────
+
+async function gracefulShutdown(signal: string): Promise<void> {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  console.log(`\n[Shutdown] ${signal} — servis kapatılıyor...`);
+
+  // Yeni HTTP bağlantısı alma
+  server.close();
+
+  // Aktif maçları iptal et (WS istemcilerine MATCH_STATUS:ABORTED gönderilir)
+  for (const m of orchestrator.listActive()) {
+    orchestrator.stopMatch(m.matchId);
+  }
+
+  // WS bağlantılarını kapat
+  wsServer.close();
+
+  // Pg bağlantılarını kapat
+  await Promise.allSettled([
+    pgSubRef?.stop(),
+    pgPoolRef?.end(),
+  ]);
+
+  console.log('[Shutdown] Temizlik tamamlandı.');
+  process.exit(0);
+}
+
+// 5sn içinde temizlik tamamlanmazsa zorla çık
+const forceExit = () => setTimeout(() => { console.error('[Shutdown] Zaman aşımı — zorla çıkılıyor.'); process.exit(1); }, 5_000);
+
+process.on('SIGTERM', () => { forceExit().unref(); gracefulShutdown('SIGTERM').catch(() => process.exit(1)); });
+process.on('SIGINT',  () => { forceExit().unref(); gracefulShutdown('SIGINT').catch(() => process.exit(1)); });
 
 export { server, wsServer, unified };
