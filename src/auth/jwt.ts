@@ -19,7 +19,7 @@ export interface JwtPayload {
   exp:     number;   // expiry   (saniye)
 }
 
-export function signToken(userId: string, secret: string, ttlDays = 7): string {
+export function signToken(userId: string, secret: string, ttlDays = 1): string {
   const now     = Math.floor(Date.now() / 1000);
   const payload = base64url(JSON.stringify({
     userId,

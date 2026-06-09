@@ -22,8 +22,9 @@ import { GroupId }               from '../tournament/types';
 import { json }                  from './HttpRouter';
 import { PgPool, parseDatabaseUrl } from '../db/PgPool';
 import { migrate }               from '../db/migrate';
-import { LiveMatchOrchestrator } from '../match/LiveMatchOrchestrator';
-import { TransferWindow }        from '../transfer/TransferWindow';
+import { LiveMatchOrchestrator }    from '../match/LiveMatchOrchestrator';
+import { TransferWindow }           from '../transfer/TransferWindow';
+import { PerformanceCalculator }    from '../events/PerformanceCalculator';
 import { PgSubscriber }          from '../db/PgSubscriber';
 import { RateLimiter }           from './RateLimiter';
 import { Metrics }               from './Metrics';
@@ -335,11 +336,8 @@ router.get('/stats', ({ res }) => {
 });
 
 router.get('/stats/rewards', ({ res }) => {
-  // Kullanıcıya hangi event'in ne kadar kazandırdığını göster
-  const { PerformanceCalculator } = require('../events/PerformanceCalculator');
-  const calc = new PerformanceCalculator();
   json(res, 200, {
-    rewards: calc.getRewardTable(),
+    rewards: new PerformanceCalculator().getRewardTable(),
     note:    'Coin değerleri pozisyona göre değişir. Negatif = ceza.',
   });
 });

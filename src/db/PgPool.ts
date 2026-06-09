@@ -36,8 +36,16 @@ export class PgPool {
       }
     }
 
-    // Havuz dolu — bağlantı serbest kalana kadar bekle
-    return new Promise<PgClient>(resolve => this.waiters.push(resolve));
+    // Havuz dolu — bağlantı serbest kalana kadar bekle (maks 30sn)
+    return new Promise<PgClient>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        const idx = this.waiters.findIndex(w => w === waiter);
+        if (idx !== -1) this.waiters.splice(idx, 1);
+        reject(new Error('PgPool: bağlantı zaman aşımı (30sn) — havuz tükendi'));
+      }, 30_000);
+      const waiter = (c: PgClient) => { clearTimeout(timer); resolve(c); };
+      this.waiters.push(waiter);
+    });
   }
 
   // ── Bağlantıyı serbest bırak ─────────────────────────────────────────────────

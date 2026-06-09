@@ -42,14 +42,14 @@ export class EventPipeline extends EventEmitter {
     // 1. Ödül hesapla
     const reward = this.calculator.calculate(event);
 
-    // 2. Piyasa fiyatını güncelle
+    // 2. Piyasa fiyatını güncelle — önce mevcut fiyatı kaydet
+    const oldPrice = this.market.getPrice(event.playerId);
     const newPrice = this.market.applyPerformance(
       event.playerId,
       reward.coins,
       `${event.type}@${event.minute}'`,
     );
-    const oldPrice   = newPrice; // applyPerformance zaten yeni fiyatı dönüyor
-    const priceChange = newPrice - this.market.getPrice(event.playerId) + (newPrice - oldPrice);
+    const priceChange = newPrice - oldPrice;
 
     // 3. Bu oyuncuya sahip kullanıcıları tespit et ve cüzdanları güncelle
     const affectedUsers = this.findOwnersOf(event.playerId);
@@ -78,7 +78,7 @@ export class EventPipeline extends EventEmitter {
       reward,
       affectedUsers,
       creditsApplied,
-      priceChange:    newPrice - (newPrice / (1 + 0)),
+      priceChange,
       newMarketPrice: newPrice,
       durationMs:     Date.now() - t0,
     };
@@ -90,7 +90,7 @@ export class EventPipeline extends EventEmitter {
       reward,
       affectedUsers,
       newMarketPrice: newPrice,
-      oldPrice:       newPrice,   // applyPerformance zaten yeni değeri döndürdü
+      oldPrice,
       playerName:     this.playerNames.get(event.playerId) ?? event.playerId,
     });
 

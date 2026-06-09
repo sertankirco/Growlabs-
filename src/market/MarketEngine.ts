@@ -32,12 +32,12 @@ export interface MarketSnapshot {
 
 // ── Volatilite Sabitleri ──────────────────────────────────────────────────────
 
-const MAX_PRICE_CHANGE_RATIO = 0.30;   // tek bir event maks ±%30
+const MAX_PRICE_CHANGE_RATIO = 0.20;   // tek bir event maks ±%20
 const PERFORMANCE_WEIGHT     = 0.15;   // performans etkisi
-const DEMAND_WEIGHT          = 0.10;   // arz-talep etkisi
+const DEMAND_WEIGHT          = 0.04;   // arz-talep etkisi (0.10 fazla agresifti)
 const MIN_PRICE              = 50;     // oyuncu fiyatı bu değerin altına düşemez
-const SCORE_HISTORY_SIZE     = 3;      // son kaç maç dikkate alınır
-const TRANSACTION_WINDOW     = 20;     // talep hesabında son kaç işlem
+const SCORE_HISTORY_SIZE     = 5;      // son kaç maç dikkate alınır
+const TRANSACTION_WINDOW     = 30;     // talep hesabında son kaç işlem
 
 export class MarketEngine {
   private readonly records = new Map<PlayerId, MarketRecord>();
