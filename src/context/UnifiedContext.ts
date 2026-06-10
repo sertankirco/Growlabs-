@@ -110,7 +110,7 @@ class MemWalletAdapter implements IUnifiedWallet {
 
 class MemSquadAdapter implements IUnifiedSquad {
   constructor(private readonly e: SquadManager) {}
-  async createSquad(u: UserId)                                { return this.e.createSquad(u); }
+  async createSquad(u: UserId): Promise<void>                 { this.e.createSquad(u); }
   async getSquad(u: UserId)                                   { return this.e.getSquad(u); }
   async addPlayer(u: UserId, p: Player, s: SlotType)          { return this.e.addPlayer(u, p, s); }
   async removePlayer(u: UserId, p: PlayerId)                  { return this.e.removePlayer(u, p); }

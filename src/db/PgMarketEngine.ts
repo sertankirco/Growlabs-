@@ -3,12 +3,12 @@ import { PlayerId } from '../wallet/types';
 import { MarketSnapshot, PricePoint } from '../market/MarketEngine';
 
 // ── Volatilite sabitleri (MarketEngine ile aynı) ─────────────────────────────
-const MAX_CHANGE       = 0.30;
+const MAX_CHANGE       = 0.20;
 const PERF_WEIGHT      = 0.15;
-const DEMAND_WEIGHT    = 0.10;
+const DEMAND_WEIGHT    = 0.04;
 const MIN_PRICE        = 50;
-const SCORE_WINDOW     = 3;
-const TRANSACTION_WIN  = 20;
+const SCORE_WINDOW     = 5;
+const TRANSACTION_WIN  = 30;
 
 // ── PgMarketEngine ────────────────────────────────────────────────────────────
 //
@@ -75,7 +75,7 @@ export class PgMarketEngine {
       [playerId],
     );
     if (r.rows.length === 0) throw new Error(`Oyuncu piyasada kayıtlı değil: ${playerId}`);
-    return parseInt(r.rows[0].current_price!);
+    return parseInt(r.rows[0].current_price!, 10);
   }
 
   async getSnapshot(playerId: PlayerId): Promise<MarketSnapshot> {
@@ -89,18 +89,18 @@ export class PgMarketEngine {
     if (pr.rows.length === 0) throw new Error(`Oyuncu piyasada kayıtlı değil: ${playerId}`);
     const row = pr.rows[0];
 
-    const currentPrice = parseInt(row.current_price!);
+    const currentPrice = parseInt(row.current_price!, 10);
     const prev         = await this.price24hAgo(playerId, currentPrice);
     const delta        = prev > 0 ? ((currentPrice - prev) / prev) * 100 : 0;
 
     return {
       playerId,
       currentPrice,
-      basePrice:  parseInt(row.base_market_price!),
+      basePrice:  parseInt(row.base_market_price!, 10),
       change24h:  Math.round(delta * 100) / 100,
       trend:      delta > 1 ? 'UP' : delta < -1 ? 'DOWN' : 'STABLE',
-      totalBuys:  parseInt(row.total_buys ?? '0'),
-      totalSells: parseInt(row.total_sells ?? '0'),
+      totalBuys:  parseInt(row.total_buys ?? '0', 10),
+      totalSells: parseInt(row.total_sells ?? '0', 10),
     };
   }
 
@@ -125,15 +125,15 @@ export class PgMarketEngine {
       );
       if (pr.rows.length === 0) throw new Error(`Oyuncu piyasada kayıtlı değil: ${playerId}`);
 
-      const currentPrice = parseInt(pr.rows[0].current_price!);
-      const basePrice    = parseInt(pr.rows[0].base_market_price!);
+      const currentPrice = parseInt(pr.rows[0].current_price!, 10);
+      const basePrice    = parseInt(pr.rows[0].base_market_price!, 10);
 
       // Son 3 performans event puanı
       const sr = await client.query(
         'SELECT coins FROM perf_events WHERE player_id = $1 ORDER BY id DESC LIMIT $2',
         [playerId, SCORE_WINDOW],
       );
-      const recentScores = sr.rows.map(r => parseInt(r.coins!));
+      const recentScores = sr.rows.map(r => parseInt(r.coins!, 10));
 
       // Son 20 talep eventi
       const dr = await client.query(
@@ -209,7 +209,7 @@ export class PgMarketEngine {
       [playerId],
     );
     if (pr.rows.length === 0) return;
-    const currentPrice = parseInt(pr.rows[0].current_price!);
+    const currentPrice = parseInt(pr.rows[0].current_price!, 10);
 
     const dr = await client.query(
       'SELECT tx_type FROM demand_events WHERE player_id = $1 ORDER BY id DESC LIMIT $2',
@@ -240,7 +240,7 @@ export class PgMarketEngine {
       [playerId],
     );
     return r.rows.map(row => ({
-      price:     parseInt(row.price!),
+      price:     parseInt(row.price!, 10),
       reason:    row.reason!,
       timestamp: new Date(row.created_at!).getTime(),
     }));
@@ -254,7 +254,7 @@ export class PgMarketEngine {
        ORDER BY id DESC LIMIT 1`,
       [playerId, cutoff],
     );
-    return r.rows.length > 0 ? parseInt(r.rows[0].price!) : fallback;
+    return r.rows.length > 0 ? parseInt(r.rows[0].price!, 10) : fallback;
   }
 }
 

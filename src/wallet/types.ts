@@ -3,7 +3,7 @@ export type PlayerId = string;
 export type TxId     = string;
 
 export type Position = 'GK' | 'DEF' | 'MID' | 'FWD';
-export type SlotType = 'starting' | 'bench';
+export type SlotType = 'starting' | 'bench' | 'reserve';
 
 export interface Player {
   id:               PlayerId;

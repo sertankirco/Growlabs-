@@ -61,7 +61,7 @@ CREATE TABLE IF NOT EXISTS squad_versions (
 CREATE TABLE IF NOT EXISTS squad_members (
   user_id    TEXT NOT NULL REFERENCES wallets(user_id),
   player_id  TEXT NOT NULL REFERENCES players(player_id),
-  slot       TEXT NOT NULL CHECK (slot IN ('starting','bench')),
+  slot       TEXT NOT NULL CHECK (slot IN ('starting','bench','reserve')),
   added_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   PRIMARY KEY (user_id, player_id)
 );
@@ -120,3 +120,14 @@ CREATE TABLE IF NOT EXISTS price_history (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS idx_price_history_player ON price_history(player_id, id DESC);
+
+-- ── Migrations — mevcut veritabanları için ────────────────────────────────────
+
+-- v0.20: squad_members.slot CHECK kısıtlaması 'reserve' değerini ekledi
+DO $$
+BEGIN
+  ALTER TABLE squad_members DROP CONSTRAINT IF EXISTS squad_members_slot_check;
+  ALTER TABLE squad_members ADD CONSTRAINT squad_members_slot_check
+    CHECK (slot IN ('starting','bench','reserve'));
+EXCEPTION WHEN OTHERS THEN NULL;
+END $$;

@@ -28,7 +28,7 @@ export interface LiveFeedClientConfig {
 }
 
 export class LiveFeedClient extends EventEmitter {
-  private readonly destroyed     = false as boolean;
+  private destroyed     = false;
   private readonly activeMatches = new Map<string, { unsubscribe: () => void }>();
   private readonly cfg:          Required<LiveFeedClientConfig>;
 
@@ -53,7 +53,7 @@ export class LiveFeedClient extends EventEmitter {
   // ── Maç aboneliği ─────────────────────────────────────────────────────────
 
   subscribeMatch(matchId: string, handler: FeedEventHandler): void {
-    if ((this as any).destroyed || this.activeMatches.has(matchId)) return;
+    if (this.destroyed || this.activeMatches.has(matchId)) return;
 
     if (!this.isConfigured) {
       console.log(`[LiveFeedClient] API yapılandırması yok — ${matchId} simülasyon modunda`);
@@ -85,7 +85,7 @@ export class LiveFeedClient extends EventEmitter {
   }
 
   destroy(): void {
-    (this as any).destroyed = true;
+    this.destroyed = true;
     for (const [id] of this.activeMatches) this.unsubscribeMatch(id);
   }
 
@@ -105,7 +105,7 @@ export class LiveFeedClient extends EventEmitter {
     let req:       ReturnType<typeof httpsRequest> | undefined;
 
     const connect = () => {
-      if (cancelled || (this as any).destroyed) return;
+      if (cancelled || this.destroyed) return;
 
       const url = buildUrl(`${this.cfg.pushStreamUrl}?event_id=${matchId}&api_key=${this.cfg.apiKey}`);
       if (!url) {
@@ -205,7 +205,7 @@ export class LiveFeedClient extends EventEmitter {
     const seen = new Set<string>();
 
     const poll = async () => {
-      if (cancelled || (this as any).destroyed) return;
+      if (cancelled || this.destroyed) return;
 
       try {
         const events = await this.fetchTimeline(matchId);

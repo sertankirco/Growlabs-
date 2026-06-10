@@ -100,7 +100,7 @@ async function readBody(req: IncomingMessage): Promise<unknown> {
       const raw = Buffer.concat(chunks).toString('utf8');
       if (!raw) { resolve(null); return; }
       try { resolve(JSON.parse(raw)); }
-      catch { resolve(raw); }
+      catch (e) { reject(new Error(`Invalid JSON body: ${(e as Error).message}`)); }
     });
     req.on('error', reject);
   });

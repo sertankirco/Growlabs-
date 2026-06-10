@@ -89,6 +89,7 @@ export class FeedReplay extends EventEmitter {
         if (replayEv.provider === 'MOCK') {
           // Mock eventler doğrudan dispatch edilir (adapter gerekmez)
           await this.pipeline.dispatch(replayEv.raw as any);
+          this.emit('event_dispatched', replayEv.raw);
         } else {
           const adapter = this.adapters.get(replayEv.provider);
           if (!adapter) continue;
@@ -99,7 +100,6 @@ export class FeedReplay extends EventEmitter {
             this.emit('event_dispatched', ev);
           }
         }
-        this.emit('event_dispatched', replayEv);
       } catch (err) {
         this.emit('replay_error', err);
       }

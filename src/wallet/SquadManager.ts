@@ -12,6 +12,7 @@ import {
 export const SQUAD_LIMITS: Record<SlotType, number> = {
   starting: 11,
   bench:     3,
+  reserve:   5,
 };
 
 interface SquadRecord {

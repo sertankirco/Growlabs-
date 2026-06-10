@@ -1,5 +1,6 @@
 import { randomUUID } from 'crypto';
-import { PgPool, PgClient } from './PgPool';
+import { PgPool } from './PgPool';
+import { PgClient } from './PgClient';
 import { UserId, TxId, TxType, Transaction, WalletSnapshot } from '../wallet/types';
 import {
   InsufficientFundsError,
@@ -55,7 +56,7 @@ export class PgWalletEngine {
       [userId],
     );
     if (r.rows.length === 0) throw new WalletNotFoundError(userId);
-    return parseInt(r.rows[0].available ?? '0');
+    return parseInt(r.rows[0].available ?? '0', 10);
   }
 
   // ── Fon rezervasyonu (Aşama 1) — SELECT FOR UPDATE burada devreye girer ─────
@@ -89,8 +90,8 @@ export class PgWalletEngine {
       );
       if (existing.rows.length > 0) return this.rowToTx(existing.rows[0]);
 
-      const balance   = parseInt(walletRow.rows[0].balance);
-      const reserved  = parseInt(walletRow.rows[0].reserved);
+      const balance   = parseInt(walletRow.rows[0].balance ?? '0', 10);
+      const reserved  = parseInt(walletRow.rows[0].reserved ?? '0', 10);
       const available = balance - reserved;
 
       if (available < amount) throw new InsufficientFundsError(available, amount);
@@ -124,10 +125,10 @@ export class PgWalletEngine {
       if (txRow.rows.length === 0) throw new TransactionNotFoundError(txId);
       const tx = txRow.rows[0];
       if (tx.status !== 'PENDING') {
-        throw new InvalidTransactionStateError(txId, tx.status, 'PENDING');
+        throw new InvalidTransactionStateError(txId, tx.status ?? 'NULL', 'PENDING');
       }
 
-      const amount = parseInt(tx.amount);
+      const amount = parseInt(tx.amount ?? '0', 10);
       await client.query(
         `UPDATE wallets
          SET balance  = balance  - $1,
@@ -159,10 +160,10 @@ export class PgWalletEngine {
       if (txRow.rows.length === 0) throw new TransactionNotFoundError(txId);
       const tx = txRow.rows[0];
       if (tx.status !== 'PENDING') {
-        throw new InvalidTransactionStateError(txId, tx.status, 'PENDING');
+        throw new InvalidTransactionStateError(txId, tx.status ?? 'NULL', 'PENDING');
       }
 
-      const amount = parseInt(tx.amount);
+      const amount = parseInt(tx.amount ?? '0', 10);
       await client.query(
         `UPDATE wallets
          SET reserved = reserved - $1, version = version + 1
@@ -228,8 +229,8 @@ export class PgWalletEngine {
     );
     return r.rows.map(row => ({
       userId:    row.user_id!,
-      balance:   parseInt(row.balance ?? '0'),
-      available: parseInt(row.available ?? '0'),
+      balance:   parseInt(row.balance ?? '0', 10),
+      available: parseInt(row.available ?? '0', 10),
     }));
   }
 
@@ -256,9 +257,9 @@ export class PgWalletEngine {
   private rowToSnapshot(row: Record<string, string | null>): WalletSnapshot {
     return {
       userId:   row.user_id!,
-      balance:  parseInt(row.balance ?? '0'),
-      reserved: parseInt(row.reserved ?? '0'),
-      version:  parseInt(row.version ?? '0'),
+      balance:  parseInt(row.balance ?? '0', 10),
+      reserved: parseInt(row.reserved ?? '0', 10),
+      version:  parseInt(row.version ?? '0', 10),
     };
   }
 
@@ -267,7 +268,7 @@ export class PgWalletEngine {
       txId:           row.tx_id!,
       userId:         row.user_id!,
       type:           row.type as TxType,
-      amount:         parseInt(row.amount ?? '0'),
+      amount:         parseInt(row.amount ?? '0', 10),
       status:         row.status as Transaction['status'],
       idempotencyKey: row.idempotency_key ?? '',
       playerId:       row.player_id ?? undefined,

@@ -123,26 +123,25 @@ export function buildHandlers(ctx: UnifiedContext) {
       const entries = await Promise.all(
         snap.entries.map(async e => {
           let currentPrice = 0;
-          try { currentPrice = await ctx.market.getPrice(e.playerId); } catch { /* kayıtsız */ }
-          const player = WORLD_CUP_PLAYERS.find(p => p.id === e.playerId);
+          try { currentPrice = await ctx.market.getPrice(e.player.id); } catch { /* kayıtsız */ }
           return {
-            playerId:     e.playerId,
-            name:         player?.name ?? e.playerId,
+            playerId:     e.player.id,
+            name:         e.player.name,
             slot:         e.slot,
             currentPrice,
           };
         }),
       );
 
+      const cashAvailable  = wallet.balance - wallet.reserved;
       const portfolioValue = entries.reduce((s, e) => s + e.currentPrice, 0);
-      // Basit P&L: mevcut portföy değeri − başlangıç bakiyesi ile karşılaştırma
-      const totalAssets = wallet.available + portfolioValue;
+      const totalAssets    = cashAvailable + portfolioValue;
 
       json(ctx2.res, 200, {
         userId:       ctx2.params.userId,
         entries,
         portfolioValue,
-        cashAvailable: wallet.available,
+        cashAvailable,
         totalAssets,
         playerCount:  entries.length,
       });

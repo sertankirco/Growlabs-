@@ -13,8 +13,9 @@ const JWT_SECRET = process.env.JWT_SECRET ?? 'wc2026-dev-secret-change-in-prod';
 
 export function requireAuth(handler: RouteHandler): RouteHandler {
   return async (ctx: RouteContext) => {
-    const auth  = ctx.req.headers['authorization'] ?? '';
-    const token = auth.startsWith('Bearer ') ? auth.slice(7) : '';
+    const rawAuth = ctx.req.headers['authorization'] ?? '';
+    const auth    = Array.isArray(rawAuth) ? (rawAuth[0] ?? '') : rawAuth;
+    const token   = auth.startsWith('Bearer ') ? auth.slice(7) : '';
     const payload = token ? verifyToken(token, JWT_SECRET) : null;
 
     if (!payload) {

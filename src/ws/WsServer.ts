@@ -254,8 +254,11 @@ export class WsServer {
   // ── HTTP Upgrade handshake ────────────────────────────────────────────────
 
   private handleUpgrade(req: IncomingMessage, socket: Socket, _head: Buffer): void {
-    const key = req.headers['sec-websocket-key'];
-    if (!key || req.headers.upgrade?.toLowerCase() !== 'websocket') {
+    const rawKey = req.headers['sec-websocket-key'];
+    const key    = Array.isArray(rawKey) ? rawKey[0] : rawKey;
+    const upgradeHeader = req.headers['upgrade'];
+    const upgradeVal    = Array.isArray(upgradeHeader) ? upgradeHeader[0] : (upgradeHeader ?? '');
+    if (!key || upgradeVal.toLowerCase() !== 'websocket') {
       socket.write('HTTP/1.1 400 Bad Request\r\n\r\n');
       socket.destroy();
       return;
@@ -320,7 +323,7 @@ export class WsServer {
         if (msg.channel.startsWith('wallet:')) {
           const targetId = msg.channel.slice(7);
           const payload  = msg.token ? verifyToken(msg.token, JWT_SECRET) : null;
-          if (!payload || payload.sub !== targetId) {
+          if (!payload || payload.userId !== targetId) {
             conn.send({ type: 'ERROR', message: 'wallet kanalı için geçerli token gerekli' });
             return;
           }
