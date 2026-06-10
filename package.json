@@ -1,0 +1,16 @@
+{
+  "name": "growlabs-football-exchange",
+  "version": "0.1.0",
+  "description": "Canlı Futbol Borsası — Wallet & Exchange Engine",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "test": "NODE_PATH=/opt/node22/lib/node_modules TS_NODE_TRANSPILE_ONLY=1 node --require ts-node/register --test src/wallet/__tests__/WalletEngine.test.ts src/wallet/__tests__/SquadManager.test.ts src/wallet/__tests__/ExchangeEngine.test.ts src/events/__tests__/EventPipeline.test.ts src/ws/__tests__/WsFrame.test.ts src/feed/__tests__/adapters.test.ts src/tournament/__tests__/TournamentEngine.test.ts src/transfer/__tests__/TransferWindow.test.ts",
+    "test:db": "NODE_PATH=/opt/node22/lib/node_modules TS_NODE_TRANSPILE_ONLY=1 node --require ts-node/register --test src/db/__tests__/db.test.ts",
+    "migrate": "NODE_PATH=/opt/node22/lib/node_modules TS_NODE_TRANSPILE_ONLY=1 node --require ts-node/register src/db/migrate.ts",
+    "start": "NODE_PATH=/opt/node22/lib/node_modules TS_NODE_TRANSPILE_ONLY=1 node --require ts-node/register src/api/server.ts"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.5"
+  }
+}

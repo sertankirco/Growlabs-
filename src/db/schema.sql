@@ -1,0 +1,133 @@
+-- ─────────────────────────────────────────────────────────────────────────────
+-- World Cup 2026: Live Stock & Manager — PostgreSQL Şeması
+-- v0.6 — Transactional kilit + ACID garantisi
+-- ─────────────────────────────────────────────────────────────────────────────
+
+-- ── Oyuncular (statik bilgi) ─────────────────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS players (
+  player_id         TEXT PRIMARY KEY,
+  name              TEXT    NOT NULL,
+  position          TEXT    NOT NULL CHECK (position IN ('GK','DEF','MID','FWD')),
+  base_market_price BIGINT  NOT NULL,
+  perf_score        INTEGER NOT NULL DEFAULT 0
+);
+
+-- ── Cüzdanlar ────────────────────────────────────────────────────────────────
+--
+-- balance  : onaylanmış bakiye (commitReservation sonrası düşer)
+-- reserved : bekleyen rezervasyonların toplamı (çift harcama kalkanı)
+-- version  : optimistik kilit sayacı (DB katmanında WHERE version=$N güvencesi)
+
+CREATE TABLE IF NOT EXISTS wallets (
+  user_id    TEXT   PRIMARY KEY,
+  balance    BIGINT NOT NULL DEFAULT 0,
+  reserved   BIGINT NOT NULL DEFAULT 0,
+  version    BIGINT NOT NULL DEFAULT 0,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- ── İşlemler (transactions) ──────────────────────────────────────────────────
+--
+-- idempotency_key UNIQUE + NULL yapılabilir:
+--   • NULL değerler UNIQUE kısıtlamasında çakışmaz (PostgreSQL davranışı)
+--   • Rollback sırasında key NULL yapılır → aynı key ile yeniden denenebilir
+
+CREATE TABLE IF NOT EXISTS transactions (
+  tx_id           TEXT    PRIMARY KEY,
+  user_id         TEXT    NOT NULL REFERENCES wallets(user_id),
+  type            TEXT    NOT NULL
+                  CHECK (type IN ('DEPOSIT','BUY_PLAYER','SELL_PLAYER',
+                                  'PERFORMANCE_EARNINGS','WITHDRAWAL')),
+  amount          BIGINT  NOT NULL,
+  status          TEXT    NOT NULL DEFAULT 'PENDING'
+                  CHECK (status IN ('PENDING','COMMITTED','ROLLED_BACK')),
+  idempotency_key TEXT    UNIQUE,        -- NULL = iptal edilmiş, yeniden denenebilir
+  player_id       TEXT    REFERENCES players(player_id),
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_tx_user       ON transactions(user_id);
+CREATE INDEX IF NOT EXISTS idx_tx_idempotent ON transactions(idempotency_key)
+  WHERE idempotency_key IS NOT NULL;
+
+-- ── Kadro ────────────────────────────────────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS squad_versions (
+  user_id  TEXT   PRIMARY KEY REFERENCES wallets(user_id),
+  version  BIGINT NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS squad_members (
+  user_id    TEXT NOT NULL REFERENCES wallets(user_id),
+  player_id  TEXT NOT NULL REFERENCES players(player_id),
+  slot       TEXT NOT NULL CHECK (slot IN ('starting','bench','reserve')),
+  added_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (user_id, player_id)
+);
+
+-- ── Piyasa ───────────────────────────────────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS market_prices (
+  player_id    TEXT   PRIMARY KEY REFERENCES players(player_id),
+  current_price BIGINT NOT NULL,
+  total_buys   BIGINT NOT NULL DEFAULT 0,
+  total_sells  BIGINT NOT NULL DEFAULT 0,
+  last_updated TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Son SCORE_HISTORY_SIZE (3) performans event puanı — volatilite hesabı için
+CREATE TABLE IF NOT EXISTS perf_events (
+  id         BIGSERIAL PRIMARY KEY,
+  player_id  TEXT   NOT NULL REFERENCES players(player_id),
+  coins      BIGINT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_perf_player ON perf_events(player_id, id DESC);
+
+-- ── Feed event tekrar girişi önleme (cross-process idempotency) ──────────────
+--
+-- WebhookReceiver'ın in-memory IdempotencyStore'u yeniden başlatmada sıfırlanır.
+-- Bu tablo, farklı sunucu süreçlerinden gelen aynı provider event'inin iki kez
+-- işlenmesini engeller.  INSERT ON CONFLICT DO NOTHING kullanılır.
+
+CREATE TABLE IF NOT EXISTS ingested_events (
+  event_id    TEXT        PRIMARY KEY,
+  match_id    TEXT        NOT NULL,
+  provider    TEXT        NOT NULL,
+  ingested_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- 7 günden eski kayıtları pg_cron veya uygulama katmanı temizler
+CREATE INDEX IF NOT EXISTS idx_ingested_events_match ON ingested_events(match_id);
+CREATE INDEX IF NOT EXISTS idx_ingested_events_time  ON ingested_events(ingested_at);
+
+-- Son TRANSACTION_WINDOW (20) alım/satım — talep baskısı için kayan pencere
+CREATE TABLE IF NOT EXISTS demand_events (
+  id         BIGSERIAL PRIMARY KEY,
+  player_id  TEXT NOT NULL REFERENCES players(player_id),
+  tx_type    TEXT NOT NULL CHECK (tx_type IN ('BUY','SELL')),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_demand_player ON demand_events(player_id, id DESC);
+
+-- Tüm fiyat değişikliklerinin geçmişi (grafik, 24h değişim vb.)
+CREATE TABLE IF NOT EXISTS price_history (
+  id         BIGSERIAL PRIMARY KEY,
+  player_id  TEXT   NOT NULL REFERENCES players(player_id),
+  price      BIGINT NOT NULL,
+  reason     TEXT   NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_price_history_player ON price_history(player_id, id DESC);
+
+-- ── Migrations — mevcut veritabanları için ────────────────────────────────────
+
+-- v0.20: squad_members.slot CHECK kısıtlaması 'reserve' değerini ekledi
+DO $$
+BEGIN
+  ALTER TABLE squad_members DROP CONSTRAINT IF EXISTS squad_members_slot_check;
+  ALTER TABLE squad_members ADD CONSTRAINT squad_members_slot_check
+    CHECK (slot IN ('starting','bench','reserve'));
+EXCEPTION WHEN OTHERS THEN NULL;
+END $$;
